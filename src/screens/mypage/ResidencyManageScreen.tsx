@@ -1,0 +1,249 @@
+import React, { useCallback, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
+import { MyPageStackParamList } from '../../navigation/types';
+import { useAppState } from '../../state/AppStateContext';
+import { supabase } from '../../lib/supabase';
+import { AddressSearch, type DaumAddressResult } from '../../components/AddressSearch';
+import { findOrCreateApartment, type ApartmentOption } from '../../lib/apartments';
+import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
+
+type Props = NativeStackScreenProps<MyPageStackParamList, 'ResidencyManage'>;
+
+interface ResidencyRow {
+  id: string;
+  dong: string;
+  ho: string;
+  apartmentName: string;
+}
+
+export function ResidencyManageScreen({ navigation }: Props) {
+  const { refreshVerification } = useAppState();
+  const [rows, setRows] = useState<ResidencyRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [selected, setSelected] = useState<ApartmentOption | null>(null);
+  const [dong, setDong] = useState('');
+  const [ho, setHo] = useState('');
+  const [resolvingAddress, setResolvingAddress] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    const { data } = await supabase
+      .from('residencies')
+      .select('id, dong, ho, apartments(name)')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+    setRows(
+      (data ?? []).map((r: any) => ({
+        id: r.id,
+        dong: r.dong,
+        ho: r.ho,
+        apartmentName: Array.isArray(r.apartments) ? r.apartments[0]?.name : r.apartments?.name,
+      }))
+    );
+    setLoading(false);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh])
+  );
+
+  const handleAddressSelect = async (addr: DaumAddressResult) => {
+    setErrorMsg(null);
+    setResolvingAddress(true);
+    try {
+      setSelected(await findOrCreateApartment(addr));
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : '주소를 등록하지 못했어요.');
+    } finally {
+      setResolvingAddress(false);
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!selected || !dong.trim() || !ho.trim()) return;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { error } = await supabase.from('residencies').insert({
+      user_id: user.id,
+      apartment_id: selected.id,
+      dong: dong.trim(),
+      ho: ho.trim(),
+      verified: true,
+      verified_at: new Date().toISOString(),
+    });
+    if (error) {
+      setErrorMsg(error.message);
+      return;
+    }
+    setAdding(false);
+    setSelected(null);
+    setDong('');
+    setHo('');
+    await refreshVerification();
+    refresh();
+  };
+
+  const handleDelete = (id: string) => {
+    Alert.alert('배송지 삭제', '이 배송지를 삭제할까요?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          await supabase.from('residencies').delete().eq('id', id);
+          await refreshVerification();
+          refresh();
+        },
+      },
+    ]);
+  };
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <View style={styles.header}>
+        <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
+          <Text style={styles.back}>‹</Text>
+        </Pressable>
+        <Text style={styles.headerTitle}>배송지 관리</Text>
+        <Pressable onPress={() => setAdding((a) => !a)} hitSlop={8}>
+          <Text style={styles.addLink}>{adding ? '취소' : '+ 추가'}</Text>
+        </Pressable>
+      </View>
+
+      {adding && (
+        <View style={styles.addForm}>
+          {selected ? (
+            <View style={styles.selectedRow}>
+              <Text style={styles.selectedText}>{selected.name}</Text>
+              <Pressable onPress={() => setSelected(null)} hitSlop={8}>
+                <Text style={styles.changeText}>변경</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <AddressSearch onSelect={handleAddressSelect}>
+              {(open) => (
+                <Pressable style={[styles.input, styles.addressButton]} onPress={open} disabled={resolvingAddress}>
+                  {resolvingAddress ? (
+                    <ActivityIndicator color={colors.primary} />
+                  ) : (
+                    <Text style={{ color: colors.textDisabled, fontSize: fontSize.lg }}>주소 검색</Text>
+                  )}
+                </Pressable>
+              )}
+            </AddressSearch>
+          )}
+          <View style={styles.rowGap}>
+            <TextInput style={[styles.input, { flex: 1 }]} placeholder="동" placeholderTextColor={colors.textDisabled} value={dong} onChangeText={setDong} keyboardType="number-pad" />
+            <TextInput style={[styles.input, { flex: 1 }]} placeholder="호" placeholderTextColor={colors.textDisabled} value={ho} onChangeText={setHo} keyboardType="number-pad" />
+          </View>
+          {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
+          <Pressable
+            style={[styles.cta, (!selected || !dong.trim() || !ho.trim()) && styles.ctaDisabled]}
+            disabled={!selected || !dong.trim() || !ho.trim()}
+            onPress={handleAdd}
+          >
+            <Text style={styles.ctaText}>배송지 등록</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {loading ? (
+        <View style={styles.centerFill}>
+          <ActivityIndicator color={colors.primary} size="large" />
+        </View>
+      ) : (
+        <FlatList
+          data={rows}
+          keyExtractor={(r) => r.id}
+          contentContainerStyle={styles.listContent}
+          renderItem={({ item, index }) => (
+            <View style={styles.card}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.title}>{item.apartmentName}</Text>
+                <Text style={styles.sub}>
+                  {item.dong}동 {item.ho}호 {index === 0 && '· 현재 사용 중'}
+                </Text>
+              </View>
+              <Pressable onPress={() => handleDelete(item.id)} hitSlop={8}>
+                <Text style={styles.deleteText}>삭제</Text>
+              </Pressable>
+            </View>
+          )}
+          ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
+        />
+      )}
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: screenPadding,
+    paddingVertical: spacing.sm,
+  },
+  back: { fontSize: 28, color: colors.textPrimary },
+  headerTitle: { fontSize: fontSize.xl, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  addLink: { fontSize: fontSize.md, color: colors.primary, fontWeight: fontWeight.semibold },
+  addForm: { paddingHorizontal: screenPadding, gap: spacing.sm, paddingBottom: spacing.sm },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.divider,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    minHeight: minTouchSize,
+    fontSize: fontSize.lg,
+    color: colors.textPrimary,
+  },
+  addressButton: { justifyContent: 'center' },
+  rowGap: { flexDirection: 'row', gap: spacing.sm },
+  selectedRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    minHeight: minTouchSize,
+  },
+  selectedText: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold, color: colors.primaryDark },
+  changeText: { fontSize: fontSize.md, color: colors.primary, fontWeight: fontWeight.semibold },
+  errorText: { color: colors.danger, fontSize: fontSize.md },
+  cta: { height: minTouchSize, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  ctaDisabled: { opacity: 0.4 },
+  ctaText: { color: colors.white, fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
+  centerFill: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  listContent: { padding: screenPadding, paddingTop: spacing.xs },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+  },
+  title: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  sub: { fontSize: fontSize.md, color: colors.textSecondary, marginTop: 2 },
+  deleteText: { fontSize: fontSize.md, color: colors.danger },
+});
