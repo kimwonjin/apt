@@ -3,7 +3,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { GroupBuy } from '../types/domain';
 import { colors, fontSize, fontWeight, radius, spacing } from '../theme';
 import { formatDday, formatPrice } from '../lib/format';
-import { chargeAmount, nextTier } from '../lib/discount';
+import { nextTier, priceAfterDiscount } from '../lib/discount';
 
 interface Props {
   groupBuy: GroupBuy;
@@ -25,8 +25,8 @@ export function GroupBuyCard({ groupBuy, onPress }: Props) {
     ? { fg: colors.danger, bg: colors.dangerLight }
     : { fg: colors.textSecondary, bg: colors.fillSubtle };
   const isBumped = !!groupBuy.bumpedAt && Date.now() - new Date(groupBuy.bumpedAt).getTime() < 24 * 60 * 60 * 1000;
-  const next = nextTier(participantCount, timeSlot);
-  const price = chargeAmount(basePrice, participantCount, timeSlot);
+  const next = nextTier(participantCount, timeSlot, groupBuy.discountTable);
+  const price = priceAfterDiscount(basePrice, discountPercent);
 
   return (
     <Pressable style={styles.card} onPress={onPress}>

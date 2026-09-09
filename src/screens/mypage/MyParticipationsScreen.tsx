@@ -7,7 +7,7 @@ import { MyPageStackParamList } from '../../navigation/types';
 import { supabase } from '../../lib/supabase';
 import { colors, fontSize, fontWeight, radius, screenPadding, spacing } from '../../theme';
 import { formatPrice } from '../../lib/format';
-import { chargeAmount } from '../../lib/discount';
+import { priceAfterDiscount } from '../../lib/discount';
 
 type Props = NativeStackScreenProps<MyPageStackParamList, 'MyParticipations'>;
 
@@ -21,8 +21,7 @@ interface Row {
     title: string;
     base_price: number;
     status: string;
-    time_slot: 'offpeak' | 'peak';
-    participant_count: number;
+    discount_percent: number;
   } | null;
 }
 
@@ -48,7 +47,7 @@ export function MyParticipationsScreen({ navigation }: Props) {
     }
     const { data } = await supabase
       .from('participations')
-      .select('id, hold_status, charged_amount, picked_up, groupbuys(id, title, base_price, status, time_slot, participant_count)')
+      .select('id, hold_status, charged_amount, picked_up, groupbuys(id, title, base_price, status, discount_percent)')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
     setRows(
@@ -101,7 +100,7 @@ export function MyParticipationsScreen({ navigation }: Props) {
             const gb = item.groupbuy;
             const amount =
               item.chargedAmount ??
-              (gb ? chargeAmount(gb.base_price, gb.participant_count, gb.time_slot) : 0);
+              (gb ? priceAfterDiscount(gb.base_price, gb.discount_percent) : 0);
             return (
               <Pressable
                 style={styles.card}

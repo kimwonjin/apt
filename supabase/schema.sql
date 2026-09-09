@@ -27,6 +27,7 @@ drop table if exists chat_rooms cascade;
 drop table if exists payment_methods cascade;
 drop table if exists participations cascade;
 drop table if exists groupbuys cascade;
+drop table if exists menu_discount_tiers cascade;
 drop table if exists menus cascade;
 drop table if exists restaurants cascade;
 drop table if exists building_memberships cascade;
@@ -35,6 +36,7 @@ drop table if exists buildings cascade;
 
 drop function if exists groupbuy_discount_percent(int, text) cascade;
 drop function if exists groupbuy_discount_percent(int, groupbuy_time_slot) cascade;
+drop function if exists groupbuy_discount_percent(uuid, int, groupbuy_time_slot) cascade;
 drop function if exists sweep_expired_groupbuys() cascade;
 drop function if exists materialize_subscription_runs() cascade;
 drop function if exists join_groupbuy(uuid, uuid, int) cascade;
@@ -128,6 +130,17 @@ create table menus (
   min_headcount integer not null default 3,  -- 이 메뉴 기본 최소 성사 인원
   active boolean not null default true,
   created_at timestamptz not null default now()
+);
+
+-- 메뉴별 계단식 할인율 매트릭스 (시간대 × 인원 구간). 운영자가 메뉴 등록 시 입력(기획서 7장 표가 기본값).
+-- 구간에 없는 인원수(예: 3~4명)는 groupbuy_discount_percent()가 0%로 폴백.
+create table menu_discount_tiers (
+  id uuid primary key default gen_random_uuid(),
+  menu_id uuid not null references menus(id) on delete cascade,
+  time_slot groupbuy_time_slot not null,
+  min_headcount integer not null,
+  discount_percent integer not null check (discount_percent between 0 and 100),
+  unique (menu_id, time_slot, min_headcount)
 );
 
 create table groupbuys (
@@ -297,20 +310,17 @@ create trigger on_auth_user_created
 after insert on auth.users for each row execute function handle_new_user();
 
 -- ── 계단식 할인율 (기획서 7장) — TS: src/lib/discount.ts 와 값 동일해야 함 ──
-create or replace function groupbuy_discount_percent(headcount int, slot groupbuy_time_slot)
-returns int language sql immutable as $$
-  select case slot
-    when 'peak' then case
-      when headcount >= 20 then 12
-      when headcount >= 10 then 8
-      when headcount >= 5  then 5
-      else 0 end
-    when 'offpeak' then case
-      when headcount >= 20 then 20
-      when headcount >= 10 then 15
-      when headcount >= 5  then 10
-      else 0 end
-  end;
+-- 메뉴별 할인 매트릭스(menu_discount_tiers)에서 해당 인원/시간대에 맞는 최고 구간 할인율을 찾는다.
+-- 매트릭스가 없는(아직 안 채운) 메뉴는 0% — 상시가로 노출.
+create or replace function groupbuy_discount_percent(p_menu_id uuid, headcount int, slot groupbuy_time_slot)
+returns int language sql stable as $$
+  select coalesce(
+    (select discount_percent from menu_discount_tiers
+     where menu_id = p_menu_id and time_slot = slot and min_headcount <= headcount
+     order by min_headcount desc
+     limit 1),
+    0
+  );
 $$;
 
 -- ── 참여 증감 → participant_count + discount_percent 실시간 갱신 ──
@@ -320,12 +330,13 @@ declare
   gb_id uuid := coalesce(new.groupbuy_id, old.groupbuy_id);
   cnt int;
   slot groupbuy_time_slot;
+  m_id uuid;
 begin
   select count(*) into cnt from participations where groupbuy_id = gb_id;
-  select time_slot into slot from groupbuys where id = gb_id;
+  select time_slot, menu_id into slot, m_id from groupbuys where id = gb_id;
   update groupbuys
     set participant_count = cnt,
-        discount_percent = groupbuy_discount_percent(cnt, slot)
+        discount_percent = groupbuy_discount_percent(m_id, cnt, slot)
     where id = gb_id and status = 'open';
   return null;
 end;
@@ -451,7 +462,7 @@ begin
     select * from groupbuys where status = 'open' and deadline <= now() for update skip locked
   loop
     if gb.participant_count >= gb.min_headcount then
-      final_pct := groupbuy_discount_percent(gb.participant_count, gb.time_slot);
+      final_pct := groupbuy_discount_percent(gb.menu_id, gb.participant_count, gb.time_slot);
       update groupbuys set status = 'success', final_discount_percent = final_pct where id = gb.id;
       -- 카드 캡처(목업): 홀드 → 캡처, 금액 확정.
       update participations
@@ -618,6 +629,8 @@ create policy "restaurants readable by authenticated" on restaurants for select 
 create policy "admins manage restaurants" on restaurants for all to authenticated using (is_admin()) with check (is_admin());
 create policy "menus readable by authenticated" on menus for select to authenticated using (true);
 create policy "admins manage menus" on menus for all to authenticated using (is_admin()) with check (is_admin());
+create policy "discount tiers readable by authenticated" on menu_discount_tiers for select to authenticated using (true);
+create policy "admins manage discount tiers" on menu_discount_tiers for all to authenticated using (is_admin()) with check (is_admin());
 
 -- participations: 본인 것만 직접 관리(참여/취소는 RPC 경유), 개설자는 자기 공구 명단 조회 가능
 create policy "users view own participation" on participations for select to authenticated using (user_id = auth.uid());

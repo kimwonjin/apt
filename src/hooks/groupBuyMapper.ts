@@ -1,5 +1,11 @@
 import { supabase } from '../lib/supabase';
+import { buildDiscountTable } from '../lib/discount';
 import { GroupBuy, GroupBuyStatus, TimeSlot } from '../types/domain';
+
+// useGroupBuys/useGroupBuy 의 select 문에 이 값을 그대로 붙여 쓴다.
+// menus -> menu_discount_tiers 는 FK 하나뿐이라 PostgREST가 역방향 임베드를 알아서 잡아준다.
+export const GROUPBUY_SELECT =
+  '*, restaurants(id,name,category,rating), menus(discount_tiers:menu_discount_tiers(time_slot,min_headcount,discount_percent))';
 
 export interface GroupBuyRow {
   id: string;
@@ -21,6 +27,7 @@ export interface GroupBuyRow {
   bumped_at: string | null;
   subscription_group_id: string | null;
   restaurants?: { id: string; name: string; category: string | null; rating: number } | null;
+  menus?: { discount_tiers: { time_slot: TimeSlot; min_headcount: number; discount_percent: number }[] } | null;
 }
 
 interface CreatorBadgeRow {
@@ -74,6 +81,7 @@ export async function attachCreatorBadges(rows: GroupBuyRow[]): Promise<GroupBuy
       pickupPlace: r.pickup_place ?? undefined,
       pickupTime: r.pickup_time ?? undefined,
       subscriptionGroupId: r.subscription_group_id ?? undefined,
+      discountTable: buildDiscountTable(r.menus?.discount_tiers ?? []) ?? undefined,
       creator: {
         id: r.creator_id,
         name: badge?.name ?? '알 수 없음',

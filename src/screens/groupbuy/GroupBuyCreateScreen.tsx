@@ -6,7 +6,7 @@ import { HomeStackParamList } from '../../navigation/types';
 import { useAppState } from '../../state/AppStateContext';
 import { supabase } from '../../lib/supabase';
 import { formatPrice } from '../../lib/format';
-import { chargeAmount, discountPercent } from '../../lib/discount';
+import { buildDiscountTable, chargeAmount, DEFAULT_DISCOUNT_TABLE, DiscountTable, discountPercent } from '../../lib/discount';
 import { TimeSlot } from '../../types/domain';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
 
@@ -36,6 +36,7 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
   const [menus, setMenus] = useState<MenuRow[]>([]);
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuRow | null>(null);
+  const [discountTable, setDiscountTable] = useState<DiscountTable>(DEFAULT_DISCOUNT_TABLE);
   const [slot, setSlot] = useState<TimeSlot>('peak');
   const [deadlineHour, setDeadlineHour] = useState<number | null>(null);
   const [minHeadcount, setMinHeadcount] = useState('3');
@@ -74,6 +75,15 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
 
   useEffect(() => {
     if (menu) setMinHeadcount(String(menu.min_headcount));
+    if (!menu) {
+      setDiscountTable(DEFAULT_DISCOUNT_TABLE);
+      return;
+    }
+    supabase
+      .from('menu_discount_tiers')
+      .select('time_slot, min_headcount, discount_percent')
+      .eq('menu_id', menu.id)
+      .then(({ data }) => setDiscountTable(buildDiscountTable(data ?? []) ?? DEFAULT_DISCOUNT_TABLE));
   }, [menu]);
 
   const deadline = useMemo(() => {
@@ -225,8 +235,8 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
                 <View key={n} style={styles.previewRow}>
                   <Text style={styles.previewLabel}>{n < 5 ? `${n}명 (최소 미만)` : `${n}명`}</Text>
                   <Text style={styles.previewValue}>
-                    {formatPrice(chargeAmount(menu.base_price, n, slot))}
-                    <Text style={styles.previewPct}> ({discountPercent(n, slot)}%↓)</Text>
+                    {formatPrice(chargeAmount(menu.base_price, n, slot, discountTable))}
+                    <Text style={styles.previewPct}> ({discountPercent(n, slot, discountTable)}%↓)</Text>
                   </Text>
                 </View>
               ))}

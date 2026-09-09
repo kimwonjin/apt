@@ -8,7 +8,20 @@ import { MyPageStackParamList } from '../../navigation/types';
 import { supabase } from '../../lib/supabase';
 import { uploadPhoto } from '../../lib/storage';
 import { formatPrice } from '../../lib/format';
+import { DEFAULT_DISCOUNT_TABLE, TimeSlot } from '../../lib/discount';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
+
+// 매트릭스에 사람이 직접 입력하는 인원 구간 (5명 미만은 스펙상 항상 0%라 편집 대상에서 제외).
+const DISCOUNT_TIERS = [5, 10, 20] as const;
+const SLOT_LABEL: Record<TimeSlot, string> = { offpeak: '오프피크', peak: '피크' };
+
+function defaultDiscountInputs(): Record<TimeSlot, Record<number, string>> {
+  const percentOf = (slot: TimeSlot, floor: number) => String(DEFAULT_DISCOUNT_TABLE[slot].find(([f]) => f === floor)?.[1] ?? 0);
+  return {
+    offpeak: Object.fromEntries(DISCOUNT_TIERS.map((t) => [t, percentOf('offpeak', t)])),
+    peak: Object.fromEntries(DISCOUNT_TIERS.map((t) => [t, percentOf('peak', t)])),
+  };
+}
 
 type Props = NativeStackScreenProps<MyPageStackParamList, 'Admin'>;
 
@@ -53,6 +66,11 @@ export function AdminScreen({ navigation }: Props) {
   const [mMinHeadcount, setMMinHeadcount] = useState('3');
   const [mPhotoUri, setMPhotoUri] = useState<string | null>(null);
   const [mPhotoUploading, setMPhotoUploading] = useState(false);
+  const [discountInputs, setDiscountInputs] = useState(defaultDiscountInputs);
+
+  const setDiscountCell = (slot: TimeSlot, tier: number, value: string) => {
+    setDiscountInputs((prev) => ({ ...prev, [slot]: { ...prev[slot], [tier]: value } }));
+  };
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -125,19 +143,37 @@ export function AdminScreen({ navigation }: Props) {
         setMPhotoUploading(true);
         photoUrl = await uploadPhoto(mPhotoUri, 'menus');
       }
-      await supabase.from('menus').insert({
-        restaurant_id: selected.id,
-        name: mName.trim(),
-        category: mCategory.trim() || null,
-        photo_url: photoUrl,
-        base_price: Number(mPrice),
-        min_headcount: Number(mMinHeadcount) || 3,
-      });
+      const { data: newMenu, error: menuError } = await supabase
+        .from('menus')
+        .insert({
+          restaurant_id: selected.id,
+          name: mName.trim(),
+          category: mCategory.trim() || null,
+          photo_url: photoUrl,
+          base_price: Number(mPrice),
+          min_headcount: Number(mMinHeadcount) || 3,
+        })
+        .select('id')
+        .single();
+
+      if (!menuError && newMenu) {
+        const tierRows = (['offpeak', 'peak'] as TimeSlot[]).flatMap((slot) =>
+          DISCOUNT_TIERS.map((tier) => ({
+            menu_id: newMenu.id,
+            time_slot: slot,
+            min_headcount: tier,
+            discount_percent: Number(discountInputs[slot][tier]) || 0,
+          }))
+        );
+        await supabase.from('menu_discount_tiers').insert(tierRows);
+      }
+
       setMName('');
       setMCategory('');
       setMPrice('');
       setMMinHeadcount('3');
       setMPhotoUri(null);
+      setDiscountInputs(defaultDiscountInputs());
       loadMenus(selected);
     } finally {
       setMPhotoUploading(false);
@@ -239,6 +275,33 @@ export function AdminScreen({ navigation }: Props) {
                   keyboardType="number-pad"
                 />
               </View>
+              <Text style={styles.formLabel}>시간대 × 인원별 할인율(%) — 5명 미만은 항상 0%</Text>
+              <View style={styles.matrix}>
+                <View style={styles.matrixRow}>
+                  <Text style={[styles.matrixCell, styles.matrixHeaderCell]} />
+                  {DISCOUNT_TIERS.map((tier) => (
+                    <Text key={tier} style={[styles.matrixCell, styles.matrixHeaderText]}>
+                      {tier}명+
+                    </Text>
+                  ))}
+                </View>
+                {(['offpeak', 'peak'] as TimeSlot[]).map((slot) => (
+                  <View key={slot} style={styles.matrixRow}>
+                    <Text style={[styles.matrixCell, styles.matrixHeaderText]}>{SLOT_LABEL[slot]}</Text>
+                    {DISCOUNT_TIERS.map((tier) => (
+                      <TextInput
+                        key={tier}
+                        style={[styles.input, styles.matrixCell, styles.matrixInput]}
+                        value={discountInputs[slot][tier]}
+                        onChangeText={(v) => setDiscountCell(slot, tier, v)}
+                        keyboardType="number-pad"
+                        placeholder="0"
+                        placeholderTextColor={colors.textDisabled}
+                      />
+                    ))}
+                  </View>
+                ))}
+              </View>
               <Pressable style={styles.photoPicker} onPress={pickMenuPhoto}>
                 {mPhotoUri ? (
                   <Image source={{ uri: mPhotoUri }} style={styles.photoPreview} />
@@ -288,6 +351,12 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     color: colors.textPrimary,
   },
+  matrix: { gap: 6, marginTop: spacing.xs },
+  matrixRow: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+  matrixCell: { flex: 1, textAlign: 'center' },
+  matrixHeaderCell: { flex: 1 },
+  matrixHeaderText: { fontSize: fontSize.base, color: colors.textSecondary, fontWeight: fontWeight.medium, textAlign: 'center' },
+  matrixInput: { minHeight: 40, paddingHorizontal: 4 },
   photoPicker: {
     marginTop: spacing.xs,
     borderWidth: 1,

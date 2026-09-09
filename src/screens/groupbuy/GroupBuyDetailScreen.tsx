@@ -8,7 +8,7 @@ import { useGroupBuy } from '../../hooks/useGroupBuy';
 import { supabase } from '../../lib/supabase';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
 import { formatDday, formatPrice } from '../../lib/format';
-import { chargeAmount, nextTier } from '../../lib/discount';
+import { nextTier, priceAfterDiscount } from '../../lib/discount';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'GroupBuyDetail'>;
 
@@ -127,8 +127,8 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
 
   const { participantCount, minHeadcount, discountPercent, timeSlot, basePrice } = groupBuy;
   const met = participantCount >= minHeadcount;
-  const price = chargeAmount(basePrice, participantCount, timeSlot);
-  const next = nextTier(participantCount, timeSlot);
+  const price = priceAfterDiscount(basePrice, discountPercent);
+  const next = nextTier(participantCount, timeSlot, groupBuy.discountTable);
   const progress = Math.min(participantCount / minHeadcount, 1);
 
   return (
