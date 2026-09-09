@@ -1,0 +1,48 @@
+name: Deploy web to GitHub Pages
+
+# 이 브랜치에 코드가 올라오면 자동으로 웹 빌드 후 gh-pages 로 배포한다.
+on:
+  push:
+    branches: [claude/base6-code-connection-u47aj3]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Export web build
+        env:
+          # anon key 는 RLS 로 보호되는 공개용 키라 클라이언트 번들에 포함되어도 안전하다.
+          EXPO_PUBLIC_SUPABASE_URL: https://enkcnyfryhlmosbzntix.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVua2NueWZyeWhsbW9zYnpudGl4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4OTYyMjAsImV4cCI6MjEwNDQ3MjIyMH0.KbbzUHQfk34v9fX_yt7Clhaj7gSZXHTnyIUilHkTc80
+        run: npx expo export --platform web
+
+      - name: Add GitHub Pages helper files
+        run: |
+          touch dist/.nojekyll
+          cp dist/index.html dist/404.html
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages
