@@ -9,51 +9,43 @@ import { useGroupBuys } from '../../hooks/useGroupBuys';
 import { GroupBuyCard } from '../../components/GroupBuyCard';
 import { AppHeader } from '../../components/AppHeader';
 import { colors, fontSize, fontWeight, radius, screenPadding, spacing } from '../../theme';
-import { GroupBuyCategory } from '../../types/domain';
 
-const CATEGORIES: Array<GroupBuyCategory | '전체' | '마감임박'> = [
-  '전체',
-  '식품',
-  '가구',
-  '가전',
-  '커튼·샤시',
-  '시공',
-  '마감임박',
-];
+const FILTERS = ['전체', '진행중', '마감임박', '성사확정'] as const;
+type Filter = (typeof FILTERS)[number];
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'HomeList'>;
 
 export function HomeScreen({ navigation }: Props) {
-  const { apartmentName, leaderStatus, refreshRoleApplications } = useAppState();
+  const { buildingName } = useAppState();
   const { groupBuys, loading, error, refresh } = useGroupBuys();
-  const [category, setCategory] = useState<(typeof CATEGORIES)[number]>('전체');
+  const [filter, setFilter] = useState<Filter>('전체');
   const [query, setQuery] = useState('');
 
   useFocusEffect(
     useCallback(() => {
       refresh();
-      refreshRoleApplications();
-    }, [refresh, refreshRoleApplications])
+    }, [refresh])
   );
 
   const list = useMemo(() => {
     let result = groupBuys;
-    if (category === '마감임박') result = result.filter((g) => g.urgent);
-    else if (category !== '전체') result = result.filter((g) => g.category === category);
+    if (filter === '진행중') result = result.filter((g) => g.status === 'open');
+    else if (filter === '마감임박') result = result.filter((g) => g.status === 'open' && g.urgent);
+    else if (filter === '성사확정') result = result.filter((g) => g.status === 'success');
 
     const q = query.trim().toLowerCase();
-    if (q) result = result.filter((g) => g.title.toLowerCase().includes(q));
+    if (q) result = result.filter((g) => g.title.toLowerCase().includes(q) || g.restaurant.name.toLowerCase().includes(q));
     return result;
-  }, [groupBuys, category, query]);
+  }, [groupBuys, filter, query]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <AppHeader title={`${apartmentName || '우리 아파트'} ✓`} />
+      <AppHeader title={`${buildingName || '우리 빌딩'} ✓`} />
 
       <View style={styles.searchWrap}>
         <TextInput
           style={styles.searchInput}
-          placeholder="공구 검색"
+          placeholder="메뉴·식당 검색"
           placeholderTextColor={colors.textDisabled}
           value={query}
           onChangeText={setQuery}
@@ -64,16 +56,13 @@ export function HomeScreen({ navigation }: Props) {
         <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
-          data={CATEGORIES}
+          data={FILTERS}
           keyExtractor={(c) => c}
           contentContainerStyle={{ gap: spacing.xs, paddingHorizontal: screenPadding }}
           renderItem={({ item }) => {
-            const active = item === category;
+            const active = item === filter;
             return (
-              <Pressable
-                style={[styles.chip, active && styles.chipActive]}
-                onPress={() => setCategory(item)}
-              >
+              <Pressable style={[styles.chip, active && styles.chipActive]} onPress={() => setFilter(item)}>
                 <Text style={[styles.chipText, active && styles.chipTextActive]}>{item}</Text>
               </Pressable>
             );
@@ -95,7 +84,7 @@ export function HomeScreen({ navigation }: Props) {
       ) : list.length === 0 ? (
         <View style={styles.centerFill}>
           <Text style={styles.emptyText}>
-            {query.trim() ? '검색 결과가 없어요.' : '아직 진행 중인 공구가 없어요.'}
+            {query.trim() ? '검색 결과가 없어요.' : '아직 모집 중인 공구가 없어요. 직접 만들어보세요!'}
           </Text>
         </View>
       ) : (
@@ -115,11 +104,9 @@ export function HomeScreen({ navigation }: Props) {
         />
       )}
 
-      {leaderStatus === 'approved' && (
-        <Pressable style={styles.fab} onPress={() => navigation.navigate('GroupBuyCreate')} hitSlop={8}>
-          <Text style={styles.fabText}>+ 공구 개설</Text>
-        </Pressable>
-      )}
+      <Pressable style={styles.fab} onPress={() => navigation.navigate('GroupBuyCreate')} hitSlop={8}>
+        <Text style={styles.fabText}>+ 공구 만들기</Text>
+      </Pressable>
     </SafeAreaView>
   );
 }
@@ -136,12 +123,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   chipRow: { paddingVertical: spacing.sm },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderRadius: radius.pill,
-    backgroundColor: colors.fillSubtle,
-  },
+  chip: { paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.fillSubtle },
   chipActive: { backgroundColor: colors.primary },
   chipText: { fontSize: fontSize.md, color: colors.textSecondary, fontWeight: fontWeight.medium },
   chipTextActive: { color: colors.white, fontWeight: fontWeight.semibold },
@@ -149,7 +131,7 @@ const styles = StyleSheet.create({
   centerFill: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.sm, padding: screenPadding },
   errorText: { fontSize: fontSize.md, color: colors.danger, textAlign: 'center' },
   retryText: { fontSize: fontSize.md, color: colors.primary, fontWeight: fontWeight.semibold },
-  emptyText: { fontSize: fontSize.md, color: colors.textTertiary },
+  emptyText: { fontSize: fontSize.md, color: colors.textTertiary, textAlign: 'center' },
   fab: {
     position: 'absolute',
     right: screenPadding,

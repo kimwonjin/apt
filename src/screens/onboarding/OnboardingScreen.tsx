@@ -5,29 +5,25 @@ import { useAppState } from '../../state/AppStateContext';
 import { supabase } from '../../lib/supabase';
 import { signInOrSignUpByPhone } from '../../lib/auth';
 import { AddressSearch, type DaumAddressResult } from '../../components/AddressSearch';
-import { findOrCreateApartment, type ApartmentOption } from '../../lib/apartments';
+import { findOrCreateBuilding, type BuildingOption } from '../../lib/buildings';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
 
 const SLIDES = [
-  { title: '우리 아파트에서, 뭐든 저렴하게', body: '이웃과 함께 모이면 더 싸게 살 수 있어요.' },
-  { title: '믿을 수 있는 이웃, 공구대장이 함께해요', body: '검수부터 분배·시공 조율까지 공구대장이 챙겨드려요.' },
-  { title: '가구부터 시공까지, 우리 단지 맞춤 견적', body: '같은 평형·구조라 견적이 표준화돼요.' },
+  { title: '우리 빌딩에서, 점심을 더 싸게', body: '같은 빌딩 사람들과 모여 시키면 배달비가 확 줄어요.' },
+  { title: '많이 모일수록, 더 깎여요', body: '인원과 주문 시간대에 따라 할인율이 실시간으로 올라가요.' },
+  { title: '로비에서 한 번에 픽업', body: '층마다 나누지 않고 1층 로비에서 받아가요.' },
 ];
 
 const PHONE_STEP = SLIDES.length;
 const PROFILE_STEP = SLIDES.length + 1;
 const VERIFY_STEP = SLIDES.length + 2;
 
-// 디자인 컨셉/온보딩 리포트 기준: 3개 인트로 슬라이드 + 전화번호 로그인/가입 + 프로필 설정(이름) +
-// 배송지 등록(단지+동/호). 전화번호가 곧 계정이라(src/lib/auth.ts), 이미 가입된 번호면 나머지
-// 단계 없이 바로 앱으로 들어간다. 활동명 별도 없이 이름을 그대로 profiles.name(공개 표시용)에 쓴다.
 export function OnboardingScreen() {
-  const { refreshVerification, refreshRoleApplications } = useAppState();
+  const { refreshVerification } = useAppState();
   const [step, setStep] = useState(0);
-  const [selected, setSelected] = useState<ApartmentOption | null>(null);
+  const [selected, setSelected] = useState<BuildingOption | null>(null);
+  const [company, setCompany] = useState('');
   const [resolvingAddress, setResolvingAddress] = useState(false);
-  const [dong, setDong] = useState('');
-  const [ho, setHo] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -45,10 +41,10 @@ export function OnboardingScreen() {
   const isSlideStep = !isPhoneStep && !isProfileStep && !isVerifyStep;
 
   const formatPhone = (value: string) => {
-    const digits = value.replace(/\D/g, '');
-    if (digits.length <= 3) return digits;
-    if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-    return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7, 11)}`;
+    const d = value.replace(/\D/g, '');
+    if (d.length <= 3) return d;
+    if (d.length <= 7) return `${d.slice(0, 3)}-${d.slice(3)}`;
+    return `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7, 11)}`;
   };
 
   const handlePhoneSubmit = async () => {
@@ -59,50 +55,27 @@ export function OnboardingScreen() {
       const cleanPhone = phone.replace(/\D/g, '');
       setPhone(formatPhone(cleanPhone));
       const { isNewUser } = await signInOrSignUpByPhone(cleanPhone);
-      console.log('SignInOrSignUp result:', { isNewUser });
-      if (!isNewUser) {
-        // 기존 계정: 프로필/배송지 확인
-        console.log('Existing user, checking profile and residency...');
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (user) {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('name')
-            .eq('id', user.id)
-            .maybeSingle();
-
-          if (!profile?.name || profile.name.trim() === '') {
-            // 프로필 없음 → 이름 입력 단계로 이동
-            console.log('User has no name, go to profile step...');
-            setRealName('');
-            setStep(PROFILE_STEP);
-          } else {
-            // 프로필 있음 → 배송지 확인
-            const { data: residency } = await supabase
-              .from('residencies')
-              .select('id')
-              .eq('user_id', user.id)
-              .maybeSingle();
-
-            if (residency) {
-              // 배송지 있음 → 앱 진입
-              console.log('User has profile and residency, entering app...');
-              await Promise.all([refreshVerification(), refreshRoleApplications()]);
-            } else {
-              // 배송지 없음 → 배송지 등록 단계로 이동
-              console.log('User has no residency, go to verify step...');
-              setStep(VERIFY_STEP);
-            }
-          }
-        }
-      } else {
-        // 새 계정: 이름 입력 단계로 이동
+      if (isNewUser) {
         setStep(PROFILE_STEP);
+        return;
       }
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: profile } = await supabase.from('profiles').select('name').eq('id', user.id).maybeSingle();
+      if (!profile?.name?.trim()) {
+        setStep(PROFILE_STEP);
+        return;
+      }
+      const { data: membership } = await supabase
+        .from('building_memberships')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (membership) await refreshVerification();
+      else setStep(VERIFY_STEP);
     } catch (e) {
-      console.error('handlePhoneSubmit error:', e);
       setPhoneError(e instanceof Error ? e.message : '로그인에 실패했어요. 다시 시도해주세요.');
     } finally {
       setPhoneSubmitting(false);
@@ -113,7 +86,6 @@ export function OnboardingScreen() {
     if (!realName.trim() || profileSubmitting) return;
     setProfileSubmitting(true);
     setProfileError(null);
-
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -122,11 +94,9 @@ export function OnboardingScreen() {
       setProfileSubmitting(false);
       return;
     }
-
     const { error } = await supabase
       .from('profiles')
-      .upsert({ id: user.id, phone: phone.trim(), name: realName.trim() }, { onConflict: 'id' });
-
+      .upsert({ id: user.id, phone: phone.replace(/\D/g, ''), name: realName.trim() }, { onConflict: 'id' });
     setProfileSubmitting(false);
     if (error) {
       setProfileError(error.message);
@@ -139,8 +109,7 @@ export function OnboardingScreen() {
     setErrorMsg(null);
     setResolvingAddress(true);
     try {
-      const apartment = await findOrCreateApartment(addr);
-      setSelected(apartment);
+      setSelected(await findOrCreateBuilding(addr));
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : '주소를 등록하지 못했어요. 다시 시도해주세요.');
     } finally {
@@ -149,10 +118,9 @@ export function OnboardingScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!selected || !dong.trim() || !ho.trim()) return;
+    if (!selected) return;
     setSubmitting(true);
     setErrorMsg(null);
-
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -161,16 +129,11 @@ export function OnboardingScreen() {
       setSubmitting(false);
       return;
     }
-
-    const { error } = await supabase.from('residencies').insert({
+    const { error } = await supabase.from('building_memberships').insert({
       user_id: user.id,
-      apartment_id: selected.id,
-      dong: dong.trim(),
-      ho: ho.trim(),
-      verified: true,
-      verified_at: new Date().toISOString(),
+      building_id: selected.id,
+      company_name: company.trim() || null,
     });
-
     setSubmitting(false);
     if (error) {
       setErrorMsg(error.message);
@@ -198,7 +161,7 @@ export function OnboardingScreen() {
                 placeholder="전화번호"
                 placeholderTextColor={colors.textDisabled}
                 value={phone}
-                onChangeText={(value) => setPhone(formatPhone(value))}
+                onChangeText={(v) => setPhone(formatPhone(v))}
                 keyboardType="phone-pad"
                 returnKeyType="done"
                 onSubmitEditing={handlePhoneSubmit}
@@ -223,8 +186,8 @@ export function OnboardingScreen() {
           </>
         ) : isVerifyStep ? (
           <>
-            <Text style={styles.title}>배송지 등록</Text>
-            <Text style={styles.body}>주소를 검색하고 동·호수를 입력해주세요.</Text>
+            <Text style={styles.title}>빌딩 인증</Text>
+            <Text style={styles.body}>근무하는 빌딩 주소를 검색해주세요. 회사명은 선택이에요.</Text>
             <View style={styles.form}>
               {selected ? (
                 <View style={styles.selectedRow}>
@@ -253,19 +216,10 @@ export function OnboardingScreen() {
 
               <TextInput
                 style={styles.input}
-                placeholder="동"
+                placeholder="회사명 (선택)"
                 placeholderTextColor={colors.textDisabled}
-                value={dong}
-                onChangeText={setDong}
-                keyboardType="number-pad"
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="호"
-                placeholderTextColor={colors.textDisabled}
-                value={ho}
-                onChangeText={setHo}
-                keyboardType="number-pad"
+                value={company}
+                onChangeText={setCompany}
               />
               {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
             </View>
@@ -292,12 +246,12 @@ export function OnboardingScreen() {
           styles.cta,
           isPhoneStep && (!phone.trim() || phoneSubmitting) && styles.ctaDisabled,
           isProfileStep && (!realName.trim() || profileSubmitting) && styles.ctaDisabled,
-          isVerifyStep && (!selected || !dong.trim() || !ho.trim() || submitting) && styles.ctaDisabled,
+          isVerifyStep && (!selected || submitting) && styles.ctaDisabled,
         ]}
         disabled={
           (isPhoneStep && (!phone.trim() || phoneSubmitting)) ||
           (isProfileStep && (!realName.trim() || profileSubmitting)) ||
-          (isVerifyStep && (!selected || !dong.trim() || !ho.trim() || submitting))
+          (isVerifyStep && (!selected || submitting))
         }
         onPress={
           isPhoneStep
@@ -312,7 +266,7 @@ export function OnboardingScreen() {
         {submitting || profileSubmitting || phoneSubmitting ? (
           <ActivityIndicator color={colors.white} />
         ) : (
-          <Text style={styles.ctaText}>{isVerifyStep ? '등록하고 시작하기' : '다음'}</Text>
+          <Text style={styles.ctaText}>{isVerifyStep ? '인증하고 시작하기' : '다음'}</Text>
         )}
       </Pressable>
     </SafeAreaView>
@@ -324,13 +278,7 @@ const styles = StyleSheet.create({
   skip: { alignSelf: 'flex-end', paddingVertical: spacing.sm },
   skipText: { color: colors.textSecondary, fontSize: fontSize.md },
   content: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md },
-  mascot: {
-    width: 180,
-    height: 180,
-    borderRadius: radius.lg,
-    backgroundColor: colors.primaryLight,
-    marginBottom: spacing.md,
-  },
+  mascot: { width: 180, height: 180, borderRadius: radius.lg, backgroundColor: colors.primaryLight, marginBottom: spacing.md },
   title: { fontSize: fontSize.display, fontWeight: fontWeight.bold, color: colors.textPrimary, textAlign: 'center' },
   body: { fontSize: fontSize.xl, color: colors.textSecondary, textAlign: 'center' },
   form: { width: '100%', gap: spacing.sm, marginTop: spacing.lg },

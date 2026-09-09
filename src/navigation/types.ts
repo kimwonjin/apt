@@ -3,14 +3,10 @@ export type HomeStackParamList = {
   GroupBuyDetail: { groupBuyId: string };
   GroupBuyCreate: undefined;
   Notifications: undefined;
-  LeaderStore: { leaderId: string };
 };
 
-export type ProductsStackParamList = {
-  ProductsList: undefined;
-  ProductCreate: undefined;
-  ProductEdit: { productId: string };
-  ProductDetail: { productId: string };
+export type CreateStackParamList = {
+  GroupBuyCreate: undefined;
 };
 
 export type ChatStackParamList = {
@@ -18,37 +14,25 @@ export type ChatStackParamList = {
   ChatRoom: { roomId: string };
 };
 
-export type CommunityStackParamList = {
-  CommunityFeed: undefined;
-  CommunityWrite: { editPostId?: string } | undefined;
-  CommunityDetail: { postId: string };
+export type SubscriptionStackParamList = {
+  SubscriptionList: undefined;
+  SubscriptionDetail: { groupId: string };
 };
 
 export type MyPageStackParamList = {
   MyPageHome: undefined;
   MyParticipations: undefined;
-  ResidencyManage: undefined;
+  BuildingManage: undefined;
   PaymentMethods: undefined;
-  MyReviews: undefined;
-  ReviewWrite: { groupBuyId: string; groupBuyTitle: string };
-  Wishlist: undefined;
-  MyGroupBuys: undefined;
   Settlement: undefined;
-  CreditDetail: undefined;
-  InstallSchedule: undefined;
-  SellerProducts: undefined;
-  ReceivedQuotes: undefined;
-  SentQuotes: undefined;
-  FollowingLeaders: undefined;
-  SellerRegistration: { selectedAddress?: any } | undefined;
-  AddressSearchModal: undefined;
+  Notifications: undefined;
   Admin: undefined;
 };
 
 export type MainTabParamList = {
   홈: undefined;
-  커뮤니티: undefined;
+  만들기: undefined;
   채팅: undefined;
-  판매상품: undefined;
+  구독: undefined;
   내정보: undefined;
 };

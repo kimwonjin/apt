@@ -1,80 +1,84 @@
 import { supabase } from '../lib/supabase';
-import { GroupBuy, GroupBuyCategory, GroupBuyStatus, GroupBuyType } from '../types/domain';
+import { GroupBuy, GroupBuyStatus, TimeSlot } from '../types/domain';
 
 export interface GroupBuyRow {
   id: string;
-  leader_id: string;
-  type: GroupBuyType;
-  category: GroupBuyCategory;
+  creator_id: string;
+  restaurant_id: string;
+  menu_id: string;
   title: string;
-  description: string | null;
   photo_url: string | null;
-  price: number;
-  market_price: number | null;
-  target_count: number;
+  base_price: number;
+  time_slot: TimeSlot;
+  min_headcount: number;
   participant_count: number;
+  discount_percent: number;
+  final_discount_percent: number | null;
   deadline: string;
   status: GroupBuyStatus;
   pickup_place: string | null;
   pickup_time: string | null;
-  install_dates: string[] | null;
   bumped_at: string | null;
+  subscription_group_id: string | null;
+  restaurants?: { id: string; name: string; category: string | null; rating: number } | null;
 }
 
-interface LeaderBadgeRow {
+interface CreatorBadgeRow {
   user_id: string;
   name: string;
-  apartment_id: string;
-  dong: string;
-  rating: number;
-  group_buy_count: number;
+  building_id: string;
+  building_name: string;
+  company_name: string | null;
 }
 
 function isUrgent(deadline: string) {
-  const days = Math.ceil((new Date(deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-  return days <= 2;
+  return new Date(deadline).getTime() - Date.now() <= 60 * 60 * 1000; // 1시간 이내
 }
 
-// leader_id 목록으로 get_leader_badge()를 병렬 호출해 "205동 이웃" 수준 배지 정보만 붙인다.
-// (호수는 절대 노출하지 않음 — 온보딩 리포트 9장)
-export async function attachLeaderBadges(rows: GroupBuyRow[]): Promise<GroupBuy[]> {
-  const leaderIds = [...new Set(rows.map((r) => r.leader_id))];
-  const badgeEntries = await Promise.all(
-    leaderIds.map(async (id) => {
+// creator_id 목록으로 get_creator_badge()를 병렬 호출해 빌딩명 수준 배지만 붙인다.
+export async function attachCreatorBadges(rows: GroupBuyRow[]): Promise<GroupBuy[]> {
+  const creatorIds = [...new Set(rows.map((r) => r.creator_id))];
+  const entries = await Promise.all(
+    creatorIds.map(async (id) => {
       const { data } = await supabase
-        .rpc('get_leader_badge', { target_user_id: id })
-        .maybeSingle<LeaderBadgeRow>();
+        .rpc('get_creator_badge', { target_user_id: id })
+        .maybeSingle<CreatorBadgeRow>();
       return [id, data] as const;
     })
   );
-  const badgeMap = new Map(badgeEntries);
+  const badgeMap = new Map(entries);
 
   return rows.map((r) => {
-    const badge = badgeMap.get(r.leader_id);
+    const badge = badgeMap.get(r.creator_id);
     return {
       id: r.id,
-      type: r.type,
-      category: r.category,
       title: r.title,
       photoUrl: r.photo_url ?? undefined,
-      groupPrice: r.price,
-      marketPrice: r.market_price ?? r.price,
+      restaurant: {
+        id: r.restaurants?.id ?? r.restaurant_id,
+        name: r.restaurants?.name ?? '식당',
+        category: r.restaurants?.category ?? undefined,
+        rating: r.restaurants?.rating ?? 0,
+      },
+      menuId: r.menu_id,
+      basePrice: r.base_price,
+      timeSlot: r.time_slot,
+      minHeadcount: r.min_headcount,
       participantCount: r.participant_count,
-      targetCount: r.target_count,
+      discountPercent: r.discount_percent,
+      finalDiscountPercent: r.final_discount_percent ?? undefined,
       deadline: r.deadline,
       urgent: isUrgent(r.deadline),
       bumpedAt: r.bumped_at ?? undefined,
       status: r.status,
-      description: r.description ?? undefined,
       pickupPlace: r.pickup_place ?? undefined,
       pickupTime: r.pickup_time ?? undefined,
-      installDates: r.install_dates ?? undefined,
-      leader: {
-        id: r.leader_id,
+      subscriptionGroupId: r.subscription_group_id ?? undefined,
+      creator: {
+        id: r.creator_id,
         name: badge?.name ?? '알 수 없음',
-        apartmentLabel: badge ? `${badge.dong}동 이웃` : '',
-        rating: badge?.rating ?? 0,
-        groupBuyCount: badge?.group_buy_count ?? 0,
+        buildingLabel: badge?.building_name ?? '',
+        companyName: badge?.company_name ?? undefined,
       },
     };
   });

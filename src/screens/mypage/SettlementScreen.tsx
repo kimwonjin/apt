@@ -40,19 +40,18 @@ export function SettlementScreen({ navigation }: Props) {
         }
         const { data: groupbuys } = await supabase
           .from('groupbuys')
-          .select('id, title, price')
-          .eq('leader_id', user.id);
+          .select('id, title')
+          .eq('creator_id', user.id);
 
         const results: Row[] = [];
         for (const gb of groupbuys ?? []) {
           const { data: parts } = await supabase
             .from('participations')
-            .select('qty')
+            .select('charged_amount')
             .eq('groupbuy_id', gb.id)
-            .eq('paid', true);
-          const totalQty = (parts ?? []).reduce((sum, p) => sum + p.qty, 0);
-          if (totalQty === 0) continue;
-          const sales = totalQty * gb.price;
+            .eq('hold_status', 'captured');
+          const sales = (parts ?? []).reduce((sum, p) => sum + (p.charged_amount ?? 0), 0);
+          if (sales === 0) continue;
           const commission = Math.round(sales * COMMISSION_RATE);
           results.push({ groupBuyId: gb.id, title: gb.title, sales, commission, payout: sales - commission });
         }

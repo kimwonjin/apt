@@ -6,19 +6,11 @@ import { useNotifications } from '../hooks/useNotifications';
 import { supabase } from '../lib/supabase';
 import { colors, fontSize, fontWeight, radius, screenPadding, spacing } from '../theme';
 
-const STATUS_LABEL: Record<string, string> = {
-  none: '미신청',
-  pending: '심사중',
-  approved: '승인',
-  rejected: '반려',
-};
-
 export function AppHeader({ title }: { title: string }) {
   const navigation = useNavigation<any>();
-  const { logout, leaderStatus, sellerStatus } = useAppState();
+  const { logout, isAdmin } = useAppState();
   const { unreadCount, refresh: refreshNotifications } = useNotifications();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [devLabel, setDevLabel] = useState('');
 
   useFocusEffect(
@@ -26,10 +18,6 @@ export function AppHeader({ title }: { title: string }) {
       refreshNotifications();
     }, [refreshNotifications])
   );
-
-  useEffect(() => {
-    supabase.rpc('is_admin').then(({ data }) => setIsAdmin(!!data));
-  }, []);
 
   // ponytail: 개발 중 어느 테스트 계정으로 로그인돼 있는지 확인하려고 넣은 디버그용 표시.
   // 실제 서비스 배포 전에 이 useEffect와 아래 devLabel Text 블록 통째로 삭제할 것.
@@ -82,11 +70,7 @@ export function AppHeader({ title }: { title: string }) {
         </View>
       </View>
 
-      {!!devLabel && (
-        <Text style={styles.devLabel}>
-          DEV: {devLabel} · 공구대장:{STATUS_LABEL[leaderStatus]} 판매자:{STATUS_LABEL[sellerStatus]}
-        </Text>
-      )}
+      {!!devLabel && <Text style={styles.devLabel}>DEV: {devLabel}</Text>}
 
       {menuOpen && (
         <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>

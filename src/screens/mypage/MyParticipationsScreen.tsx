@@ -7,22 +7,35 @@ import { MyPageStackParamList } from '../../navigation/types';
 import { supabase } from '../../lib/supabase';
 import { colors, fontSize, fontWeight, radius, screenPadding, spacing } from '../../theme';
 import { formatPrice } from '../../lib/format';
+import { chargeAmount } from '../../lib/discount';
 
 type Props = NativeStackScreenProps<MyPageStackParamList, 'MyParticipations'>;
 
 interface Row {
   id: string;
-  qty: number;
-  paid: boolean;
-  received: boolean;
-  groupbuy: { id: string; title: string; price: number; status: string } | null;
-  hasReview: boolean;
+  holdStatus: string;
+  chargedAmount: number | null;
+  pickedUp: boolean;
+  groupbuy: {
+    id: string;
+    title: string;
+    base_price: number;
+    status: string;
+    time_slot: 'offpeak' | 'peak';
+    participant_count: number;
+  } | null;
 }
+
+const HOLD_LABEL: Record<string, string> = {
+  held: '결제 대기 (마감 시 확정)',
+  captured: '결제 완료',
+  released: '결제 취소됨',
+  failed: '결제 실패',
+};
 
 export function MyParticipationsScreen({ navigation }: Props) {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
-  const [myUserId, setMyUserId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -33,26 +46,18 @@ export function MyParticipationsScreen({ navigation }: Props) {
       setLoading(false);
       return;
     }
-    setMyUserId(user.id);
-
-    const [{ data: parts }, { data: reviews }] = await Promise.all([
-      supabase
-        .from('participations')
-        .select('id, qty, paid, received, groupbuys(id, title, price, status)')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false }),
-      supabase.from('reviews').select('groupbuy_id').eq('author_id', user.id),
-    ]);
-
-    const reviewedIds = new Set((reviews ?? []).map((r) => r.groupbuy_id));
+    const { data } = await supabase
+      .from('participations')
+      .select('id, hold_status, charged_amount, picked_up, groupbuys(id, title, base_price, status, time_slot, participant_count)')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
     setRows(
-      (parts ?? []).map((p: any) => ({
+      (data ?? []).map((p: any) => ({
         id: p.id,
-        qty: p.qty,
-        paid: p.paid,
-        received: p.received,
+        holdStatus: p.hold_status,
+        chargedAmount: p.charged_amount,
+        pickedUp: p.picked_up,
         groupbuy: p.groupbuys,
-        hasReview: p.groupbuys ? reviewedIds.has(p.groupbuys.id) : false,
       }))
     );
     setLoading(false);
@@ -64,8 +69,8 @@ export function MyParticipationsScreen({ navigation }: Props) {
     }, [refresh])
   );
 
-  const markReceived = async (participationId: string) => {
-    await supabase.from('participations').update({ received: true }).eq('id', participationId);
+  const markPickedUp = async (id: string) => {
+    await supabase.from('participations').update({ picked_up: true }).eq('id', id);
     refresh();
   };
 
@@ -92,38 +97,31 @@ export function MyParticipationsScreen({ navigation }: Props) {
           data={rows}
           keyExtractor={(r) => r.id}
           contentContainerStyle={styles.listContent}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <Text style={styles.title}>{item.groupbuy?.title ?? '(삭제된 공구)'}</Text>
-              <Text style={styles.sub}>
-                {item.qty}개 · {formatPrice((item.groupbuy?.price ?? 0) * item.qty)}
-              </Text>
-              <Text style={styles.status}>
-                {item.paid ? '결제 완료' : '목표 인원 달성 시 결제'} · {item.received ? '수령 완료' : '수령 전'}
-              </Text>
-              <View style={styles.actions}>
-                {!item.received && (
-                  <Pressable style={styles.actionBtn} onPress={() => markReceived(item.id)}>
-                    <Text style={styles.actionBtnText}>수령 확인</Text>
+          renderItem={({ item }) => {
+            const gb = item.groupbuy;
+            const amount =
+              item.chargedAmount ??
+              (gb ? chargeAmount(gb.base_price, gb.participant_count, gb.time_slot) : 0);
+            return (
+              <Pressable
+                style={styles.card}
+                onPress={() =>
+                  gb && (navigation as any).getParent()?.navigate('홈', { screen: 'GroupBuyDetail', params: { groupBuyId: gb.id } })
+                }
+              >
+                <Text style={styles.title}>{gb?.title ?? '(삭제된 공구)'}</Text>
+                <Text style={styles.sub}>{formatPrice(amount)}</Text>
+                <Text style={styles.status}>
+                  {HOLD_LABEL[item.holdStatus] ?? item.holdStatus} · {item.pickedUp ? '수령 완료' : '수령 전'}
+                </Text>
+                {item.holdStatus === 'captured' && !item.pickedUp && (
+                  <Pressable style={styles.actionBtn} onPress={() => markPickedUp(item.id)}>
+                    <Text style={styles.actionBtnText}>로비에서 수령 확인</Text>
                   </Pressable>
                 )}
-                {item.received && !item.hasReview && item.groupbuy && (
-                  <Pressable
-                    style={[styles.actionBtn, styles.actionBtnPrimary]}
-                    onPress={() =>
-                      navigation.navigate('ReviewWrite', {
-                        groupBuyId: item.groupbuy!.id,
-                        groupBuyTitle: item.groupbuy!.title,
-                      })
-                    }
-                  >
-                    <Text style={styles.actionBtnPrimaryText}>후기 쓰기</Text>
-                  </Pressable>
-                )}
-                {item.hasReview && <Text style={styles.reviewedText}>후기 작성 완료</Text>}
-              </View>
-            </View>
-          )}
+              </Pressable>
+            );
+          }}
           ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
         />
       )}
@@ -133,13 +131,7 @@ export function MyParticipationsScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: screenPadding,
-    paddingVertical: spacing.sm,
-  },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: screenPadding, paddingVertical: spacing.sm },
   back: { fontSize: 28, color: colors.textPrimary },
   headerTitle: { fontSize: fontSize.xl, fontWeight: fontWeight.semibold, color: colors.textPrimary },
   centerFill: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: screenPadding },
@@ -149,17 +141,6 @@ const styles = StyleSheet.create({
   title: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold, color: colors.textPrimary },
   sub: { fontSize: fontSize.md, color: colors.textSecondary },
   status: { fontSize: fontSize.base, color: colors.textTertiary },
-  actions: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs, alignItems: 'center' },
-  actionBtn: {
-    minHeight: 36,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.fillSubtle,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionBtnText: { fontSize: fontSize.md, color: colors.textSecondary, fontWeight: fontWeight.medium },
-  actionBtnPrimary: { backgroundColor: colors.primary },
-  actionBtnPrimaryText: { fontSize: fontSize.md, color: colors.white, fontWeight: fontWeight.semibold },
-  reviewedText: { fontSize: fontSize.md, color: colors.textTertiary },
+  actionBtn: { marginTop: spacing.xs, minHeight: 36, paddingHorizontal: spacing.sm, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start' },
+  actionBtnText: { fontSize: fontSize.md, color: colors.white, fontWeight: fontWeight.semibold },
 });

@@ -7,48 +7,46 @@ import { MyPageStackParamList } from '../../navigation/types';
 import { useAppState } from '../../state/AppStateContext';
 import { supabase } from '../../lib/supabase';
 import { AddressSearch, type DaumAddressResult } from '../../components/AddressSearch';
-import { findOrCreateApartment, type ApartmentOption } from '../../lib/apartments';
+import { findOrCreateBuilding, type BuildingOption } from '../../lib/buildings';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
 
-type Props = NativeStackScreenProps<MyPageStackParamList, 'ResidencyManage'>;
+type Props = NativeStackScreenProps<MyPageStackParamList, 'BuildingManage'>;
 
-interface ResidencyRow {
+interface Row {
   id: string;
-  dong: string;
-  ho: string;
-  apartmentName: string;
+  companyName: string | null;
+  buildingName: string;
 }
 
-export function ResidencyManageScreen({ navigation }: Props) {
+export function BuildingManageScreen({ navigation }: Props) {
   const { refreshVerification } = useAppState();
-  const [rows, setRows] = useState<ResidencyRow[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
-  const [selected, setSelected] = useState<ApartmentOption | null>(null);
-  const [dong, setDong] = useState('');
-  const [ho, setHo] = useState('');
+  const [selected, setSelected] = useState<BuildingOption | null>(null);
+  const [company, setCompany] = useState('');
   const [resolvingAddress, setResolvingAddress] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) {
       setLoading(false);
       return;
     }
-
     const { data } = await supabase
-      .from('residencies')
-      .select('id, dong, ho, apartments(name)')
+      .from('building_memberships')
+      .select('id, company_name, buildings(name)')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
     setRows(
       (data ?? []).map((r: any) => ({
         id: r.id,
-        dong: r.dong,
-        ho: r.ho,
-        apartmentName: Array.isArray(r.apartments) ? r.apartments[0]?.name : r.apartments?.name,
+        companyName: r.company_name,
+        buildingName: Array.isArray(r.buildings) ? r.buildings[0]?.name : r.buildings?.name,
       }))
     );
     setLoading(false);
@@ -64,7 +62,7 @@ export function ResidencyManageScreen({ navigation }: Props) {
     setErrorMsg(null);
     setResolvingAddress(true);
     try {
-      setSelected(await findOrCreateApartment(addr));
+      setSelected(await findOrCreateBuilding(addr));
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : '주소를 등록하지 못했어요.');
     } finally {
@@ -73,19 +71,15 @@ export function ResidencyManageScreen({ navigation }: Props) {
   };
 
   const handleAdd = async () => {
-    if (!selected || !dong.trim() || !ho.trim()) return;
+    if (!selected) return;
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
-
-    const { error } = await supabase.from('residencies').insert({
+    const { error } = await supabase.from('building_memberships').insert({
       user_id: user.id,
-      apartment_id: selected.id,
-      dong: dong.trim(),
-      ho: ho.trim(),
-      verified: true,
-      verified_at: new Date().toISOString(),
+      building_id: selected.id,
+      company_name: company.trim() || null,
     });
     if (error) {
       setErrorMsg(error.message);
@@ -93,20 +87,19 @@ export function ResidencyManageScreen({ navigation }: Props) {
     }
     setAdding(false);
     setSelected(null);
-    setDong('');
-    setHo('');
+    setCompany('');
     await refreshVerification();
     refresh();
   };
 
   const handleDelete = (id: string) => {
-    Alert.alert('배송지 삭제', '이 배송지를 삭제할까요?', [
+    Alert.alert('빌딩 삭제', '이 빌딩 인증을 삭제할까요?', [
       { text: '취소', style: 'cancel' },
       {
         text: '삭제',
         style: 'destructive',
         onPress: async () => {
-          await supabase.from('residencies').delete().eq('id', id);
+          await supabase.from('building_memberships').delete().eq('id', id);
           await refreshVerification();
           refresh();
         },
@@ -120,7 +113,7 @@ export function ResidencyManageScreen({ navigation }: Props) {
         <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
           <Text style={styles.back}>‹</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>배송지 관리</Text>
+        <Text style={styles.headerTitle}>빌딩 관리</Text>
         <Pressable onPress={() => setAdding((a) => !a)} hitSlop={8}>
           <Text style={styles.addLink}>{adding ? '취소' : '+ 추가'}</Text>
         </Pressable>
@@ -148,17 +141,16 @@ export function ResidencyManageScreen({ navigation }: Props) {
               )}
             </AddressSearch>
           )}
-          <View style={styles.rowGap}>
-            <TextInput style={[styles.input, { flex: 1 }]} placeholder="동" placeholderTextColor={colors.textDisabled} value={dong} onChangeText={setDong} keyboardType="number-pad" />
-            <TextInput style={[styles.input, { flex: 1 }]} placeholder="호" placeholderTextColor={colors.textDisabled} value={ho} onChangeText={setHo} keyboardType="number-pad" />
-          </View>
+          <TextInput
+            style={styles.input}
+            placeholder="회사명 (선택)"
+            placeholderTextColor={colors.textDisabled}
+            value={company}
+            onChangeText={setCompany}
+          />
           {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
-          <Pressable
-            style={[styles.cta, (!selected || !dong.trim() || !ho.trim()) && styles.ctaDisabled]}
-            disabled={!selected || !dong.trim() || !ho.trim()}
-            onPress={handleAdd}
-          >
-            <Text style={styles.ctaText}>배송지 등록</Text>
+          <Pressable style={[styles.cta, !selected && styles.ctaDisabled]} disabled={!selected} onPress={handleAdd}>
+            <Text style={styles.ctaText}>빌딩 인증</Text>
           </Pressable>
         </View>
       )}
@@ -175,9 +167,9 @@ export function ResidencyManageScreen({ navigation }: Props) {
           renderItem={({ item, index }) => (
             <View style={styles.card}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.title}>{item.apartmentName}</Text>
+                <Text style={styles.title}>{item.buildingName}</Text>
                 <Text style={styles.sub}>
-                  {item.dong}동 {item.ho}호 {index === 0 && '· 현재 사용 중'}
+                  {item.companyName ?? '회사명 미입력'} {index === 0 && '· 현재 사용 중'}
                 </Text>
               </View>
               <Pressable onPress={() => handleDelete(item.id)} hitSlop={8}>
@@ -215,7 +207,6 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   addressButton: { justifyContent: 'center' },
-  rowGap: { flexDirection: 'row', gap: spacing.sm },
   selectedRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
