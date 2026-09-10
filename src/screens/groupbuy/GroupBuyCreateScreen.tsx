@@ -84,12 +84,16 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
       .then(({ data }) => setDiscountTable(buildDiscountTable(data ?? []) ?? DEFAULT_DISCOUNT_TABLE));
   }, [menu]);
 
+  // 오늘 그 시각이 이미 지났으면(또는 30분 미만 남았으면) 내일 같은 시각으로 넘긴다.
+  // 안 그러면 오후엔 '10시 이전/12시 이전' 둘 다 항상 과거가 돼서 공구를 아예 못 만든다.
   const deadline = useMemo(() => {
     if (deadlineHour == null) return null;
     const d = new Date();
     d.setHours(deadlineHour, 0, 0, 0);
+    if (d.getTime() <= Date.now() + 30 * 60 * 1000) d.setDate(d.getDate() + 1);
     return d;
   }, [deadlineHour]);
+  const isDeadlineTomorrow = !!deadline && deadline.getDate() !== new Date().getDate();
   const selectedOption = DEADLINE_OPTIONS.find((o) => o.hour === deadlineHour) ?? null;
   const slot: TimeSlot = selectedOption?.slot ?? 'peak';
 
@@ -197,8 +201,10 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
                 />
               ))}
             </View>
-            {deadline && deadline.getTime() <= Date.now() + 30 * 60 * 1000 && (
-              <Text style={styles.note}>지금 기준 30분 이후로 마감을 잡아주세요.</Text>
+            {deadline && (
+              <Text style={styles.note}>
+                {isDeadlineTomorrow ? '내일' : '오늘'} {deadlineHour}시 마감으로 잡혀요.
+              </Text>
             )}
           </Field>
 
