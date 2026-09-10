@@ -8,7 +8,7 @@ import { useGroupBuy } from '../../hooks/useGroupBuy';
 import { supabase } from '../../lib/supabase';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
 import { formatDday, formatPrice } from '../../lib/format';
-import { nextTier, priceAfterDiscount } from '../../lib/discount';
+import { nextTier, priceAfterDiscount, TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'GroupBuyDetail'>;
 
@@ -17,7 +17,10 @@ interface Participant {
   name: string;
 }
 
-const SLOT_LABEL: Record<string, string> = { before_10: '10시 이전', before_11: '11시 이전', before_12: '12시 이전' };
+function slotLabel(slot: TimeSlot) {
+  const { name, hint } = TIME_SLOT_LABEL[slot];
+  return `${name} (${hint})`;
+}
 
 export function GroupBuyDetailScreen({ route, navigation }: Props) {
   const { groupBuy, loading, error, refresh } = useGroupBuy(route.params.groupBuyId);
@@ -172,7 +175,7 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
         )}
 
         <View style={styles.section}>
-          <Row label="주문 시간대" value={SLOT_LABEL[timeSlot]} />
+          <Row label="주문 시간대" value={slotLabel(timeSlot)} />
           <Row label="로비 픽업 장소" value={groupBuy.pickupPlace ?? '-'} />
           <Row label="수령 예정" value={groupBuy.pickupTime ?? '-'} />
           <Row label="개설자" value={`${groupBuy.creator.name} · ${groupBuy.creator.buildingLabel}`} />

@@ -58,8 +58,8 @@ drop type if exists groupbuy_time_slot cascade;
 
 create extension if not exists "pgcrypto";
 
--- 주문 마감 시각 구간. 마감을 이를수록(before_10) 식당 준비 리드타임이 길어 할인율이 높다.
-create type groupbuy_time_slot as enum ('before_10', 'before_11', 'before_12');
+-- offpeak: 10시 이전 마감(리드타임 김) / peak: 12시 이전 마감. 이를수록 할인율이 높다.
+create type groupbuy_time_slot as enum ('offpeak', 'peak');
 create type groupbuy_type as enum ('delivery', 'install');
 -- open: 진행중 모집 / success: 성사확정(캡처 완료) / failed: 마감실패(최소인원 미달)
 -- canceled: 개설자/운영자 취소 / done: 종료(픽업 수령 완료)
@@ -732,5 +732,5 @@ begin
   insert into menus (restaurant_id, name, base_price, min_headcount) values
     (r2, '치킨샐러드볼', 11000, 3) returning id into m1;
   insert into subscription_groups (building_id, restaurant_id, menu_id, weekday, time_slot, min_headcount, pickup_place, deadline_time)
-    values (b1, r2, m1, 1, 'before_10', 3, '1층 로비', '09:00');
+    values (b1, r2, m1, 1, 'offpeak', 3, '1층 로비', '09:00');
 end $$;

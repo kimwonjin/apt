@@ -6,28 +6,28 @@
 // 이 파일과 같은 규칙(입력 인원 이하의 최고 구간)으로 값을 낸다 — 로직을 바꿀 땐 두 곳 다 고칠 것.
 // DEFAULT_DISCOUNT_TABLE은 새 메뉴 등록 폼의 초기값 + 아직 매트릭스가 없는 메뉴의 폴백용.
 
-// 주문 마감 시각 구간. 이를수록(before_10) 식당 준비 리드타임이 길어 할인율이 높다.
-export type TimeSlot = 'before_10' | 'before_11' | 'before_12';
+// offpeak: 10시 이전 마감(리드타임 김) / peak: 12시 이전 마감. 이를수록 할인율이 높다.
+export type TimeSlot = 'offpeak' | 'peak';
+
+// 시간대별 표시 이름 + 마감 시각 부제. UI 라벨은 이 한 곳만 고치면 됨.
+export const TIME_SLOT_LABEL: Record<TimeSlot, { name: string; hint: string }> = {
+  offpeak: { name: '오프피크', hint: '10시 이전' },
+  peak: { name: '피크', hint: '12시 이전' },
+};
 
 // [하한 인원, 할인율%] — 인원 많을수록 뒤 구간.
 export type DiscountTier = readonly [minHeadcount: number, percent: number];
 export type DiscountTable = Record<TimeSlot, ReadonlyArray<DiscountTier>>;
 
-// 기획서 7장 표(구 오프피크/피크)를 마감 시각 3단계로 재편. 5명 미만은 0%(파일럿 최소 3명).
+// 기획서 7장 표. 5명 미만은 0%(파일럿 최소 3명).
 export const DEFAULT_DISCOUNT_TABLE: DiscountTable = {
-  before_10: [
+  offpeak: [
     [0, 0],
     [5, 10],
     [10, 15],
     [20, 20],
   ],
-  before_11: [
-    [0, 0],
-    [5, 8],
-    [10, 12],
-    [20, 16],
-  ],
-  before_12: [
+  peak: [
     [0, 0],
     [5, 5],
     [10, 8],
@@ -74,14 +74,13 @@ export function buildDiscountTable(
   rows: ReadonlyArray<{ time_slot: TimeSlot; min_headcount: number; discount_percent: number }>
 ): DiscountTable | null {
   if (rows.length === 0) return null;
-  const bySlot: Record<TimeSlot, [number, number][]> = { before_10: [], before_11: [], before_12: [] };
+  const bySlot: Record<TimeSlot, [number, number][]> = { offpeak: [], peak: [] };
   for (const r of rows) bySlot[r.time_slot].push([r.min_headcount, r.discount_percent]);
   (Object.keys(bySlot) as TimeSlot[]).forEach((slot) => {
     bySlot[slot].sort((a, b) => a[0] - b[0]);
   });
   return {
-    before_10: bySlot.before_10.length ? bySlot.before_10 : DEFAULT_DISCOUNT_TABLE.before_10,
-    before_11: bySlot.before_11.length ? bySlot.before_11 : DEFAULT_DISCOUNT_TABLE.before_11,
-    before_12: bySlot.before_12.length ? bySlot.before_12 : DEFAULT_DISCOUNT_TABLE.before_12,
+    offpeak: bySlot.offpeak.length ? bySlot.offpeak : DEFAULT_DISCOUNT_TABLE.offpeak,
+    peak: bySlot.peak.length ? bySlot.peak : DEFAULT_DISCOUNT_TABLE.peak,
   };
 }

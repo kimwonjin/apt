@@ -8,13 +8,12 @@ import { MyPageStackParamList } from '../../navigation/types';
 import { supabase } from '../../lib/supabase';
 import { uploadPhoto } from '../../lib/storage';
 import { formatPrice } from '../../lib/format';
-import { DEFAULT_DISCOUNT_TABLE, TimeSlot } from '../../lib/discount';
+import { DEFAULT_DISCOUNT_TABLE, TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
 
 // 매트릭스에 사람이 직접 입력하는 인원 구간 (5명 미만은 스펙상 항상 0%라 편집 대상에서 제외).
 const DISCOUNT_TIERS = [5, 10, 20] as const;
-const TIME_SLOTS: TimeSlot[] = ['before_10', 'before_11', 'before_12'];
-const SLOT_LABEL: Record<TimeSlot, string> = { before_10: '10시 이전', before_11: '11시 이전', before_12: '12시 이전' };
+const TIME_SLOTS: TimeSlot[] = ['offpeak', 'peak'];
 
 function defaultDiscountInputs(): Record<TimeSlot, Record<number, string>> {
   const percentOf = (slot: TimeSlot, floor: number) => String(DEFAULT_DISCOUNT_TABLE[slot].find(([f]) => f === floor)?.[1] ?? 0);
@@ -287,17 +286,22 @@ export function AdminScreen({ navigation }: Props) {
                 </View>
                 {TIME_SLOTS.map((slot) => (
                   <View key={slot} style={styles.matrixRow}>
-                    <Text style={[styles.matrixCell, styles.matrixHeaderText]}>{SLOT_LABEL[slot]}</Text>
+                    <View style={[styles.matrixCell, styles.matrixHeaderCell]}>
+                      <Text style={styles.matrixHeaderText}>{TIME_SLOT_LABEL[slot].name}</Text>
+                      <Text style={styles.matrixHeaderHint}>({TIME_SLOT_LABEL[slot].hint})</Text>
+                    </View>
                     {DISCOUNT_TIERS.map((tier) => (
-                      <TextInput
-                        key={tier}
-                        style={[styles.input, styles.matrixCell, styles.matrixInput]}
-                        value={discountInputs[slot][tier]}
-                        onChangeText={(v) => setDiscountCell(slot, tier, v)}
-                        keyboardType="number-pad"
-                        placeholder="0"
-                        placeholderTextColor={colors.textDisabled}
-                      />
+                      <View key={tier} style={[styles.matrixCell, styles.matrixInputWrap]}>
+                        <TextInput
+                          style={styles.matrixInput}
+                          value={discountInputs[slot][tier]}
+                          onChangeText={(v) => setDiscountCell(slot, tier, v)}
+                          keyboardType="number-pad"
+                          placeholder="0"
+                          placeholderTextColor={colors.textDisabled}
+                        />
+                        <Text style={styles.matrixPercentSign}>%</Text>
+                      </View>
                     ))}
                   </View>
                 ))}
@@ -353,10 +357,22 @@ const styles = StyleSheet.create({
   },
   matrix: { gap: 6, marginTop: spacing.xs },
   matrixRow: { flexDirection: 'row', gap: 6, alignItems: 'center' },
-  matrixCell: { flex: 1, textAlign: 'center' },
-  matrixHeaderCell: { flex: 1 },
+  matrixCell: { flex: 1 },
+  matrixHeaderCell: { alignItems: 'center' },
   matrixHeaderText: { fontSize: fontSize.base, color: colors.textSecondary, fontWeight: fontWeight.medium, textAlign: 'center' },
-  matrixInput: { minHeight: 40, paddingHorizontal: 4 },
+  matrixHeaderHint: { fontSize: 11, color: colors.textTertiary, textAlign: 'center' },
+  matrixInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.divider,
+    borderRadius: radius.md,
+    minHeight: 40,
+    paddingHorizontal: 4,
+  },
+  matrixInput: { flex: 1, textAlign: 'right', fontSize: fontSize.md, color: colors.textPrimary, padding: 0 },
+  matrixPercentSign: { fontSize: fontSize.base, color: colors.textSecondary, marginLeft: 2 },
   photoPicker: {
     marginTop: spacing.xs,
     borderWidth: 1,

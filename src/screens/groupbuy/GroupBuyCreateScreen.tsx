@@ -6,8 +6,7 @@ import { HomeStackParamList } from '../../navigation/types';
 import { useAppState } from '../../state/AppStateContext';
 import { supabase } from '../../lib/supabase';
 import { formatPrice } from '../../lib/format';
-import { buildDiscountTable, chargeAmount, DEFAULT_DISCOUNT_TABLE, DiscountTable, discountPercent } from '../../lib/discount';
-import { TimeSlot } from '../../types/domain';
+import { buildDiscountTable, chargeAmount, DEFAULT_DISCOUNT_TABLE, DiscountTable, discountPercent, TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'GroupBuyCreate'>;
@@ -23,11 +22,10 @@ interface MenuRow {
   min_headcount: number;
 }
 
-// 마감 시각을 고르면 그게 곧 할인 시간대(time_slot)가 된다 — 이를수록(10시 이전) 할인율이 높다.
-const DEADLINE_OPTIONS: { hour: number; slot: TimeSlot; label: string }[] = [
-  { hour: 10, slot: 'before_10', label: '10시 이전' },
-  { hour: 11, slot: 'before_11', label: '11시 이전' },
-  { hour: 12, slot: 'before_12', label: '12시 이전' },
+// 마감 시각을 고르면 그게 곧 할인 시간대(time_slot)가 된다 — 이를수록(오프피크) 할인율이 높다.
+const DEADLINE_OPTIONS: { hour: number; slot: TimeSlot }[] = [
+  { hour: 10, slot: 'offpeak' },
+  { hour: 12, slot: 'peak' },
 ];
 const PREVIEW_TIERS = [4, 5, 10, 20];
 
@@ -93,7 +91,7 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
     return d;
   }, [deadlineHour]);
   const selectedOption = DEADLINE_OPTIONS.find((o) => o.hour === deadlineHour) ?? null;
-  const slot: TimeSlot = selectedOption?.slot ?? 'before_12';
+  const slot: TimeSlot = selectedOption?.slot ?? 'peak';
 
   const minHc = Math.max(Number(minHeadcount) || 0, 3);
   const isValid =
@@ -187,10 +185,16 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
             </Field>
           )}
 
-          <Field label="주문 마감 시각 (오늘) — 이를수록 할인율이 높아요">
+          <Field label="주문 시간대 — 이를수록 할인율이 높아요">
             <View style={styles.row}>
               {DEADLINE_OPTIONS.map((o) => (
-                <Chip key={o.hour} label={o.label} active={deadlineHour === o.hour} onPress={() => setDeadlineHour(o.hour)} />
+                <Chip
+                  key={o.hour}
+                  label={TIME_SLOT_LABEL[o.slot].name}
+                  sublabel={`(${TIME_SLOT_LABEL[o.slot].hint})`}
+                  active={deadlineHour === o.hour}
+                  onPress={() => setDeadlineHour(o.hour)}
+                />
               ))}
             </View>
             {deadline && deadline.getTime() <= Date.now() + 30 * 60 * 1000 && (
@@ -224,7 +228,7 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
 
           {menu && (
             <View style={styles.previewBox}>
-              <Text style={styles.previewTitle}>인원별 예상 가격 ({selectedOption?.label ?? '12시 이전'})</Text>
+              <Text style={styles.previewTitle}>인원별 예상 가격 ({TIME_SLOT_LABEL[slot].name})</Text>
               {PREVIEW_TIERS.map((n) => (
                 <View key={n} style={styles.previewRow}>
                   <Text style={styles.previewLabel}>{n < 5 ? `${n}명 (최소 미만)` : `${n}명`}</Text>
@@ -259,10 +263,11 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function Chip({ label, sublabel, active, onPress }: { label: string; sublabel?: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable style={[styles.chip, active && styles.chipActive]} onPress={onPress}>
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+      {sublabel && <Text style={[styles.chipSubtext, active && styles.chipTextActive]}>{sublabel}</Text>}
     </Pressable>
   );
 }
@@ -278,9 +283,10 @@ const styles = StyleSheet.create({
   fieldLabel: { fontSize: fontSize.md, color: colors.textSecondary, fontWeight: fontWeight.medium },
   note: { fontSize: fontSize.base, color: colors.textTertiary },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  chip: { paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.fillSubtle },
+  chip: { paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.fillSubtle, alignItems: 'center' },
   chipActive: { backgroundColor: colors.primary },
   chipText: { fontSize: fontSize.md, color: colors.textSecondary, fontWeight: fontWeight.medium },
+  chipSubtext: { fontSize: 11, color: colors.textTertiary, marginTop: 1 },
   chipTextActive: { color: colors.white, fontWeight: fontWeight.semibold },
   input: {
     borderWidth: 1,

@@ -5,10 +5,14 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useAppState } from '../../state/AppStateContext';
 import { supabase } from '../../lib/supabase';
 import { AppHeader } from '../../components/AppHeader';
+import { TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
 import { colors, fontSize, fontWeight, radius, screenPadding, spacing } from '../../theme';
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
-const SLOT_LABEL: Record<string, string> = { before_10: '10시 이전', before_11: '11시 이전', before_12: '12시 이전' };
+function slotLabel(slot: TimeSlot) {
+  const { name, hint } = TIME_SLOT_LABEL[slot];
+  return `${name} (${hint})`;
+}
 
 interface GroupRow {
   id: string;
@@ -111,7 +115,7 @@ export function SubscriptionListScreen() {
                     매주 {WEEKDAYS[item.weekday]}요일 · {name(item.restaurants)}
                   </Text>
                   <Text style={styles.sub}>
-                    {name(item.menus)} · {SLOT_LABEL[item.time_slot]} · 최소 {item.min_headcount}명
+                    {name(item.menus)} · {slotLabel(item.time_slot as TimeSlot)} · 최소 {item.min_headcount}명
                   </Text>
                   {item.pickup_place && <Text style={styles.sub}>픽업: {item.pickup_place}</Text>}
                 </View>
