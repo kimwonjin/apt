@@ -597,7 +597,9 @@ alter table profiles enable row level security;
 alter table building_memberships enable row level security;
 alter table restaurants enable row level security;
 alter table menus enable row level security;
-alter table groupbuys disable row level security;   -- MVP: 인증 사용자만 접근하므로 충분
+-- disable에 의존하면 Supabase가 신규 프로젝트에 RLS를 강제로 켜버려서(022번 profiles와 동일 증상)
+-- insert가 막힐 수 있다. 명시적으로 enable + 정책을 둬서 의도를 고정한다.
+alter table groupbuys enable row level security;
 alter table participations enable row level security;
 alter table payment_methods enable row level security;
 alter table chat_rooms enable row level security;
@@ -631,6 +633,10 @@ create policy "menus readable by authenticated" on menus for select to authentic
 create policy "admins manage menus" on menus for all to authenticated using (is_admin()) with check (is_admin());
 create policy "discount tiers readable by authenticated" on menu_discount_tiers for select to authenticated using (true);
 create policy "admins manage discount tiers" on menu_discount_tiers for all to authenticated using (is_admin()) with check (is_admin());
+
+-- 공구는 인증 사용자면 누구나 개설 가능(부록 "아무나 개설"), 조회는 building_id로 클라에서 필터링.
+create policy "groupbuys readable by authenticated" on groupbuys for select to authenticated using (true);
+create policy "authenticated users create groupbuys" on groupbuys for insert to authenticated with check (creator_id = auth.uid());
 
 -- participations: 본인 것만 직접 관리(참여/취소는 RPC 경유), 개설자는 자기 공구 명단 조회 가능
 create policy "users view own participation" on participations for select to authenticated using (user_id = auth.uid());
