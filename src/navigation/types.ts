@@ -27,6 +27,7 @@ export type MyPageStackParamList = {
   Settlement: undefined;
   Notifications: undefined;
   Admin: undefined;
+  SubscriptionAdmin: undefined;
 };
 
 export type MainTabParamList = {

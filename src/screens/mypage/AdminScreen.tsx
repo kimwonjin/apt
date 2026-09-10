@@ -327,7 +327,9 @@ export function AdminScreen({ navigation }: Props) {
             </>
           )}
 
-          <Text style={styles.note}>구독 그룹(요일 다이어트 밥이)은 현재 Supabase 대시보드에서 등록해요.</Text>
+          <Pressable style={styles.subscriptionLink} onPress={() => navigation.navigate('SubscriptionAdmin')}>
+            <Text style={styles.subscriptionLinkText}>구독 그룹(요일 다이어트 밥이) 관리 ›</Text>
+          </Pressable>
         </ScrollView>
       )}
     </SafeAreaView>
@@ -396,4 +398,12 @@ const styles = StyleSheet.create({
   addBtn: { backgroundColor: colors.primary, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', marginTop: spacing.xs },
   addBtnText: { color: colors.white, fontWeight: fontWeight.semibold },
   note: { fontSize: fontSize.base, color: colors.textTertiary, marginTop: spacing.lg },
+  subscriptionLink: {
+    marginTop: spacing.lg,
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    alignItems: 'center',
+  },
+  subscriptionLinkText: { fontSize: fontSize.md, color: colors.primary, fontWeight: fontWeight.semibold },
 });
