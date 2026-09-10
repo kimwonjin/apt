@@ -48,8 +48,8 @@ export function SubscriptionAdminScreen({ navigation }: Props) {
   const [busy, setBusy] = useState(false);
 
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
+  const [weekdays, setWeekdays] = useState<number[]>([]);
   const [menu, setMenu] = useState<MenuRow | null>(null);
-  const [weekday, setWeekday] = useState(1);
   const [slot, setSlot] = useState<TimeSlot>('offpeak');
   const [minHeadcount, setMinHeadcount] = useState('3');
   const [pickupPlace, setPickupPlace] = useState('1층 로비');
@@ -100,29 +100,38 @@ export function SubscriptionAdminScreen({ navigation }: Props) {
     if (menu) setMinHeadcount(String(menu.min_headcount));
   }, [menu]);
 
-  const isValid = !!buildingId && !!restaurantId && !!menu && /^\d{2}:\d{2}$/.test(deadlineTime) && Number(minHeadcount) >= 3;
+  const toggleWeekday = (day: number) => {
+    setWeekdays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort()));
+  };
 
+  const isValid =
+    !!buildingId && !!restaurantId && weekdays.length > 0 && !!menu && /^\d{2}:\d{2}$/.test(deadlineTime) && Number(minHeadcount) >= 3;
+
+  // 요일마다 같은 메뉴로 한 번에 등록 — 하루씩 순차 insert해서 이미 등록된 요일이
+  // 있어도 나머지 요일은 정상 등록되게 한다(전체 롤백 방지).
   const addGroup = async () => {
     if (!isValid || !menu || busy) return;
     setBusy(true);
     setErrorMsg(null);
-    const { error } = await supabase.from('subscription_groups').insert({
-      building_id: buildingId,
-      restaurant_id: restaurantId,
-      menu_id: menu.id,
-      weekday,
-      time_slot: slot,
-      min_headcount: Number(minHeadcount) || 3,
-      pickup_place: pickupPlace.trim() || null,
-      deadline_time: deadlineTime,
-    });
-    setBusy(false);
-    if (error) {
-      setErrorMsg(error.message.includes('duplicate') || error.code === '23505' ? '이미 같은 요일·시간대·메뉴 구독이 있어요.' : error.message);
-      return;
+    const failedDays: string[] = [];
+    for (const day of weekdays) {
+      const { error } = await supabase.from('subscription_groups').insert({
+        building_id: buildingId,
+        restaurant_id: restaurantId,
+        menu_id: menu.id,
+        weekday: day,
+        time_slot: slot,
+        min_headcount: Number(minHeadcount) || 3,
+        pickup_place: pickupPlace.trim() || null,
+        deadline_time: deadlineTime,
+      });
+      if (error) failedDays.push(WEEKDAYS[day]);
     }
-    setRestaurantId(null);
-    setMenu(null);
+    setBusy(false);
+    if (failedDays.length > 0) {
+      setErrorMsg(`${failedDays.join(', ')}요일은 이미 같은 시간대·메뉴 구독이 있어 건너뛰었어요.`);
+    }
+    setWeekdays([]);
     setPickupPlace('1층 로비');
     setDeadlineTime('09:00');
     refresh();
@@ -181,7 +190,17 @@ export function SubscriptionAdminScreen({ navigation }: Props) {
           </Field>
 
           {restaurantId && (
-            <Field label="메뉴">
+            <Field label="요일 (여러 개 선택 가능 — 요일별로 메뉴가 달라도 돼요)">
+              <View style={styles.chipRow}>
+                {WEEKDAYS.map((w, i) => (
+                  <Chip key={w} label={`${w}요일`} active={weekdays.includes(i)} onPress={() => toggleWeekday(i)} />
+                ))}
+              </View>
+            </Field>
+          )}
+
+          {restaurantId && weekdays.length > 0 && (
+            <Field label="메뉴 — 선택한 요일에 이 메뉴로 등록돼요">
               {menus.length === 0 ? (
                 <Text style={styles.note}>이 식당에 등록된 메뉴가 없어요.</Text>
               ) : (
@@ -193,14 +212,6 @@ export function SubscriptionAdminScreen({ navigation }: Props) {
               )}
             </Field>
           )}
-
-          <Field label="요일">
-            <View style={styles.chipRow}>
-              {WEEKDAYS.map((w, i) => (
-                <Chip key={w} label={`${w}요일`} active={weekday === i} onPress={() => setWeekday(i)} />
-              ))}
-            </View>
-          </Field>
 
           <Field label="주문 시간대">
             <View style={styles.chipRow}>
@@ -244,7 +255,11 @@ export function SubscriptionAdminScreen({ navigation }: Props) {
           {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
 
           <Pressable style={[styles.addBtn, !isValid && styles.addBtnDisabled]} onPress={addGroup} disabled={!isValid || busy}>
-            {busy ? <ActivityIndicator color={colors.white} /> : <Text style={styles.addBtnText}>+ 구독 그룹 등록</Text>}
+            {busy ? (
+              <ActivityIndicator color={colors.white} />
+            ) : (
+              <Text style={styles.addBtnText}>+ {weekdays.length > 0 ? `${weekdays.length}개 요일로 ` : ''}구독 그룹 등록</Text>
+            )}
           </Pressable>
 
           <Text style={styles.note}>
