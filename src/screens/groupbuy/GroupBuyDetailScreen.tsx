@@ -17,7 +17,7 @@ interface Participant {
   name: string;
 }
 
-const SLOT_LABEL: Record<string, string> = { offpeak: '오프피크 (9~10시 주문)', peak: '피크 (11~12시 주문)' };
+const SLOT_LABEL: Record<string, string> = { before_10: '10시 이전', before_11: '11시 이전', before_12: '12시 이전' };
 
 export function GroupBuyDetailScreen({ route, navigation }: Props) {
   const { groupBuy, loading, error, refresh } = useGroupBuy(route.params.groupBuyId);

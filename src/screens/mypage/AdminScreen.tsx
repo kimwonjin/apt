@@ -13,14 +13,14 @@ import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spac
 
 // 매트릭스에 사람이 직접 입력하는 인원 구간 (5명 미만은 스펙상 항상 0%라 편집 대상에서 제외).
 const DISCOUNT_TIERS = [5, 10, 20] as const;
-const SLOT_LABEL: Record<TimeSlot, string> = { offpeak: '오프피크', peak: '피크' };
+const TIME_SLOTS: TimeSlot[] = ['before_10', 'before_11', 'before_12'];
+const SLOT_LABEL: Record<TimeSlot, string> = { before_10: '10시 이전', before_11: '11시 이전', before_12: '12시 이전' };
 
 function defaultDiscountInputs(): Record<TimeSlot, Record<number, string>> {
   const percentOf = (slot: TimeSlot, floor: number) => String(DEFAULT_DISCOUNT_TABLE[slot].find(([f]) => f === floor)?.[1] ?? 0);
-  return {
-    offpeak: Object.fromEntries(DISCOUNT_TIERS.map((t) => [t, percentOf('offpeak', t)])),
-    peak: Object.fromEntries(DISCOUNT_TIERS.map((t) => [t, percentOf('peak', t)])),
-  };
+  return Object.fromEntries(
+    TIME_SLOTS.map((slot) => [slot, Object.fromEntries(DISCOUNT_TIERS.map((t) => [t, percentOf(slot, t)]))])
+  ) as Record<TimeSlot, Record<number, string>>;
 }
 
 type Props = NativeStackScreenProps<MyPageStackParamList, 'Admin'>;
@@ -157,7 +157,7 @@ export function AdminScreen({ navigation }: Props) {
         .single();
 
       if (!menuError && newMenu) {
-        const tierRows = (['offpeak', 'peak'] as TimeSlot[]).flatMap((slot) =>
+        const tierRows = TIME_SLOTS.flatMap((slot) =>
           DISCOUNT_TIERS.map((tier) => ({
             menu_id: newMenu.id,
             time_slot: slot,
@@ -285,7 +285,7 @@ export function AdminScreen({ navigation }: Props) {
                     </Text>
                   ))}
                 </View>
-                {(['offpeak', 'peak'] as TimeSlot[]).map((slot) => (
+                {TIME_SLOTS.map((slot) => (
                   <View key={slot} style={styles.matrixRow}>
                     <Text style={[styles.matrixCell, styles.matrixHeaderText]}>{SLOT_LABEL[slot]}</Text>
                     {DISCOUNT_TIERS.map((tier) => (

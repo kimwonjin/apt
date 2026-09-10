@@ -23,11 +23,12 @@ interface MenuRow {
   min_headcount: number;
 }
 
-const SLOTS: { slot: TimeSlot; label: string }[] = [
-  { slot: 'offpeak', label: '오프피크 (9~10시 주문)' },
-  { slot: 'peak', label: '피크 (11~12시 주문)' },
+// 마감 시각을 고르면 그게 곧 할인 시간대(time_slot)가 된다 — 이를수록(10시 이전) 할인율이 높다.
+const DEADLINE_OPTIONS: { hour: number; slot: TimeSlot; label: string }[] = [
+  { hour: 10, slot: 'before_10', label: '10시 이전' },
+  { hour: 11, slot: 'before_11', label: '11시 이전' },
+  { hour: 12, slot: 'before_12', label: '12시 이전' },
 ];
-const DEADLINE_HOURS = [9, 10, 11, 12, 13, 14];
 const PREVIEW_TIERS = [4, 5, 10, 20];
 
 export function GroupBuyCreateScreen({ navigation }: Props) {
@@ -37,7 +38,6 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuRow | null>(null);
   const [discountTable, setDiscountTable] = useState<DiscountTable>(DEFAULT_DISCOUNT_TABLE);
-  const [slot, setSlot] = useState<TimeSlot>('peak');
   const [deadlineHour, setDeadlineHour] = useState<number | null>(null);
   const [minHeadcount, setMinHeadcount] = useState('3');
   const [pickupPlace, setPickupPlace] = useState('1층 로비');
@@ -92,6 +92,8 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
     d.setHours(deadlineHour, 0, 0, 0);
     return d;
   }, [deadlineHour]);
+  const selectedOption = DEADLINE_OPTIONS.find((o) => o.hour === deadlineHour) ?? null;
+  const slot: TimeSlot = selectedOption?.slot ?? 'before_12';
 
   const minHc = Math.max(Number(minHeadcount) || 0, 3);
   const isValid =
@@ -185,18 +187,10 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
             </Field>
           )}
 
-          <Field label="주문 시간대">
+          <Field label="주문 마감 시각 (오늘) — 이를수록 할인율이 높아요">
             <View style={styles.row}>
-              {SLOTS.map((s) => (
-                <Chip key={s.slot} label={s.label} active={slot === s.slot} onPress={() => setSlot(s.slot)} />
-              ))}
-            </View>
-          </Field>
-
-          <Field label="마감 시각 (오늘)">
-            <View style={styles.row}>
-              {DEADLINE_HOURS.map((h) => (
-                <Chip key={h} label={`${h}시`} active={deadlineHour === h} onPress={() => setDeadlineHour(h)} />
+              {DEADLINE_OPTIONS.map((o) => (
+                <Chip key={o.hour} label={o.label} active={deadlineHour === o.hour} onPress={() => setDeadlineHour(o.hour)} />
               ))}
             </View>
             {deadline && deadline.getTime() <= Date.now() + 30 * 60 * 1000 && (
@@ -230,7 +224,7 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
 
           {menu && (
             <View style={styles.previewBox}>
-              <Text style={styles.previewTitle}>인원별 예상 가격 ({slot === 'peak' ? '피크' : '오프피크'})</Text>
+              <Text style={styles.previewTitle}>인원별 예상 가격 ({selectedOption?.label ?? '12시 이전'})</Text>
               {PREVIEW_TIERS.map((n) => (
                 <View key={n} style={styles.previewRow}>
                   <Text style={styles.previewLabel}>{n < 5 ? `${n}명 (최소 미만)` : `${n}명`}</Text>

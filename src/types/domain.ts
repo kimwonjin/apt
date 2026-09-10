@@ -1,15 +1,14 @@
 // 빌딩공구배달 프론트엔드 타입. supabase 스키마(supabase/schema.sql)와 맞춰 갱신.
 
-import type { DiscountTable } from '../lib/discount';
+import type { DiscountTable, TimeSlot } from '../lib/discount';
+
+export type { TimeSlot };
 
 export type Role = '참여자' | '식당' | '운영자';
 
 export type GroupBuyType = 'delivery' | 'install';
 // open: 진행중 / success: 성사확정 / failed: 마감실패 / canceled: 취소됨 / done: 종료
 export type GroupBuyStatus = 'open' | 'success' | 'failed' | 'canceled' | 'done';
-
-// 계단식 할인 시간대 축 (기획서 7장). offpeak=9~10시 주문 / peak=11~12시 주문.
-export type TimeSlot = 'offpeak' | 'peak';
 
 // 카드/상세에 노출하는 개설자 배지 — 빌딩명 수준, 호수/상세주소 비공개.
 export interface CreatorBadge {
