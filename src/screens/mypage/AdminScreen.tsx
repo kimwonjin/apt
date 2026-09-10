@@ -277,7 +277,7 @@ export function AdminScreen({ navigation }: Props) {
               <Text style={styles.formLabel}>시간대 × 인원별 할인율(%) — 5명 미만은 항상 0%</Text>
               <View style={styles.matrix}>
                 <View style={styles.matrixRow}>
-                  <Text style={[styles.matrixCell, styles.matrixHeaderCell]} />
+                  <View style={styles.matrixLabelCell} />
                   {DISCOUNT_TIERS.map((tier) => (
                     <Text key={tier} style={[styles.matrixCell, styles.matrixHeaderText]}>
                       {tier}명+
@@ -286,9 +286,13 @@ export function AdminScreen({ navigation }: Props) {
                 </View>
                 {TIME_SLOTS.map((slot) => (
                   <View key={slot} style={styles.matrixRow}>
-                    <View style={[styles.matrixCell, styles.matrixHeaderCell]}>
-                      <Text style={styles.matrixHeaderText}>{TIME_SLOT_LABEL[slot].name}</Text>
-                      <Text style={styles.matrixHeaderHint}>({TIME_SLOT_LABEL[slot].hint})</Text>
+                    <View style={styles.matrixLabelCell}>
+                      <Text style={styles.matrixHeaderText} numberOfLines={1}>
+                        {TIME_SLOT_LABEL[slot].name}
+                      </Text>
+                      <Text style={styles.matrixHeaderHint} numberOfLines={1}>
+                        ({TIME_SLOT_LABEL[slot].hint})
+                      </Text>
                     </View>
                     {DISCOUNT_TIERS.map((tier) => (
                       <View key={tier} style={[styles.matrixCell, styles.matrixInputWrap]}>
@@ -357,22 +361,25 @@ const styles = StyleSheet.create({
   },
   matrix: { gap: 6, marginTop: spacing.xs },
   matrixRow: { flexDirection: 'row', gap: 6, alignItems: 'center' },
-  matrixCell: { flex: 1 },
-  matrixHeaderCell: { alignItems: 'center' },
+  matrixCell: { flex: 1, minWidth: 0 },
+  // 고정폭 + flexShrink:0 — 한글 라벨(오프피크 등)이 좁은 flex 칸에서 한 글자씩 세로로
+  // 쪼개지는 걸 막는다(CJK 텍스트는 줄바꿈 기준에서 글자 단위로 잘리기 쉬움).
+  matrixLabelCell: { width: 68, flexShrink: 0, alignItems: 'center' },
   matrixHeaderText: { fontSize: fontSize.base, color: colors.textSecondary, fontWeight: fontWeight.medium, textAlign: 'center' },
   matrixHeaderHint: { fontSize: 11, color: colors.textTertiary, textAlign: 'center' },
   matrixInputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    minWidth: 0,
     borderWidth: 1,
     borderColor: colors.divider,
     borderRadius: radius.md,
     minHeight: 40,
     paddingHorizontal: 4,
   },
-  matrixInput: { flex: 1, textAlign: 'right', fontSize: fontSize.md, color: colors.textPrimary, padding: 0 },
-  matrixPercentSign: { fontSize: fontSize.base, color: colors.textSecondary, marginLeft: 2 },
+  matrixInput: { flex: 1, minWidth: 0, textAlign: 'right', fontSize: fontSize.md, color: colors.textPrimary, padding: 0 },
+  matrixPercentSign: { fontSize: fontSize.base, color: colors.textSecondary, marginLeft: 2, flexShrink: 0 },
   photoPicker: {
     marginTop: spacing.xs,
     borderWidth: 1,
