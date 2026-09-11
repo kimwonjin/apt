@@ -165,6 +165,7 @@ create table groupbuys (
   pickup_time text,                     -- 수령 예정 시각(표시용 문자열)
   install_dates timestamptz[],
   bumped_at timestamptz,                -- 끌어올리기
+  order_sent_at timestamptz,            -- 운영자가 식당에 주문 요청을 전달한 시각(수동 확인 체크)
   created_at timestamptz not null default now(),
   check (min_headcount >= 1)
 );
@@ -637,6 +638,8 @@ create policy "admins manage discount tiers" on menu_discount_tiers for all to a
 -- 공구는 인증 사용자면 누구나 개설 가능(부록 "아무나 개설"), 조회는 building_id로 클라에서 필터링.
 create policy "groupbuys readable by authenticated" on groupbuys for select to authenticated using (true);
 create policy "authenticated users create groupbuys" on groupbuys for insert to authenticated with check (creator_id = auth.uid());
+-- 운영자가 "주문서 전달 완료" 체크(order_sent_at)를 직접 갱신할 수 있어야 함.
+create policy "admins update groupbuys" on groupbuys for update to authenticated using (is_admin()) with check (is_admin());
 
 -- participations: 본인 것만 직접 관리(참여/취소는 RPC 경유), 개설자는 자기 공구 명단 조회 가능
 create policy "users view own participation" on participations for select to authenticated using (user_id = auth.uid());

@@ -28,6 +28,7 @@ export type MyPageStackParamList = {
   Notifications: undefined;
   Admin: undefined;
   SubscriptionAdmin: undefined;
+  OrderQueue: undefined;
 };
 
 export type MainTabParamList = {

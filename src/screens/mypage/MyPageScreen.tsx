@@ -60,6 +60,10 @@ export function MyPageScreen({ navigation }: Props) {
         {isAdmin && (
           <View style={styles.menuList}>
             <Text style={styles.adminLabel}>운영자</Text>
+            <Pressable style={styles.menuRow} onPress={() => navigation.navigate('OrderQueue' as never)}>
+              <Text style={styles.menuLabel}>주문 요청 관리</Text>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
             <Pressable style={styles.menuRow} onPress={() => navigation.navigate('Admin' as never)}>
               <Text style={styles.menuLabel}>식당·메뉴·구독 관리</Text>
               <Text style={styles.chevron}>›</Text>
