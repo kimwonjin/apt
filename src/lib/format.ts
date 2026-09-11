@@ -11,6 +11,22 @@ export function formatDday(deadline: string): string {
   return `D-${days}`;
 }
 
+/** 주어진 날짜가 속한 주의 월요일 00:00을 반환(정산 주 단위 묶기용). */
+export function weekStart(iso: string): Date {
+  const d = new Date(iso);
+  const day = d.getDay(); // 0=일 .. 6=토
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() + diffToMonday);
+  return monday;
+}
+
+/** "9/1 ~ 9/7" 형태의 주간 라벨. */
+export function weekLabel(monday: Date): string {
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+  const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
+  return `${fmt(monday)} ~ ${fmt(sunday)}`;
+}
+
 export function formatRelative(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const minutes = Math.floor(diffMs / (1000 * 60));

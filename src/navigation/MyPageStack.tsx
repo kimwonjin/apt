@@ -10,6 +10,7 @@ import { NotificationsScreen } from '../screens/notifications/NotificationsScree
 import { AdminScreen } from '../screens/mypage/AdminScreen';
 import { SubscriptionAdminScreen } from '../screens/mypage/SubscriptionAdminScreen';
 import { OrderQueueScreen } from '../screens/mypage/OrderQueueScreen';
+import { RestaurantSettlementScreen } from '../screens/mypage/RestaurantSettlementScreen';
 
 const Stack = createNativeStackNavigator<MyPageStackParamList>();
 
@@ -25,6 +26,7 @@ export function MyPageStack() {
       <Stack.Screen name="Admin" component={AdminScreen} />
       <Stack.Screen name="SubscriptionAdmin" component={SubscriptionAdminScreen} />
       <Stack.Screen name="OrderQueue" component={OrderQueueScreen} />
+      <Stack.Screen name="RestaurantSettlement" component={RestaurantSettlementScreen} />
     </Stack.Navigator>
   );
 }

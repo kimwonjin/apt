@@ -166,6 +166,7 @@ create table groupbuys (
   install_dates timestamptz[],
   bumped_at timestamptz,                -- 끌어올리기
   order_sent_at timestamptz,            -- 운영자가 식당에 주문 요청을 전달한 시각(수동 확인 체크)
+  settled_at timestamptz,               -- 운영자가 이 공구 매출을 식당 계좌로 정산 완료한 시각
   created_at timestamptz not null default now(),
   check (min_headcount >= 1)
 );

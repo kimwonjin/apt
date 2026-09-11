@@ -29,6 +29,7 @@ export type MyPageStackParamList = {
   Admin: undefined;
   SubscriptionAdmin: undefined;
   OrderQueue: undefined;
+  RestaurantSettlement: undefined;
 };
 
 export type MainTabParamList = {
