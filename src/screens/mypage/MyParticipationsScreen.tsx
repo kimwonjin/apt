@@ -22,11 +22,12 @@ interface Row {
     base_price: number;
     status: string;
     discount_percent: number;
+    final_discount_percent: number | null;
   } | null;
 }
 
 const HOLD_LABEL: Record<string, string> = {
-  held: '결제 대기 (마감 시 확정)',
+  held: '결제 대기',
   captured: '결제 완료',
   released: '결제 취소됨',
   failed: '결제 실패',
@@ -47,7 +48,7 @@ export function MyParticipationsScreen({ navigation }: Props) {
     }
     const { data } = await supabase
       .from('participations')
-      .select('id, hold_status, charged_amount, picked_up, groupbuys(id, title, base_price, status, discount_percent)')
+      .select('id, hold_status, charged_amount, picked_up, groupbuys(id, title, base_price, status, discount_percent, final_discount_percent)')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
     setRows(
@@ -100,7 +101,7 @@ export function MyParticipationsScreen({ navigation }: Props) {
             const gb = item.groupbuy;
             const amount =
               item.chargedAmount ??
-              (gb ? priceAfterDiscount(gb.base_price, gb.discount_percent) : 0);
+              (gb ? priceAfterDiscount(gb.base_price, gb.final_discount_percent ?? gb.discount_percent) : 0);
             return (
               <Pressable
                 style={styles.card}

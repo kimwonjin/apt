@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
@@ -61,16 +61,18 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
   const isMine = myUserId === groupBuy?.creator.id;
   const isOpen = groupBuy?.status === 'open' && new Date(groupBuy.deadline).getTime() > Date.now();
 
+  // 실제 결제(토스) 승인엔 등록된 카드(billing_key)가 있어야 하므로, 없으면 참여를 막고
+  // 결제수단 등록 화면으로 보낸다. 예전 목업 방식처럼 참여 시점에 임시 카드를 만들어주지 않는다.
   const ensurePaymentMethod = async () => {
     if (!myUserId) return null;
-    const { data } = await supabase.from('payment_methods').select('id').eq('user_id', myUserId).limit(1).maybeSingle();
-    if (data) return data.id;
-    const { data: created } = await supabase
+    const { data } = await supabase
       .from('payment_methods')
-      .insert({ user_id: myUserId, label: '테스트카드 •••• 1234' })
       .select('id')
-      .single();
-    return created?.id ?? null;
+      .eq('user_id', myUserId)
+      .not('billing_key', 'is', null)
+      .limit(1)
+      .maybeSingle();
+    return data?.id ?? null;
   };
 
   const handleJoin = async () => {
@@ -78,6 +80,14 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
     setBusy(true);
     setActionError(null);
     const pmId = await ensurePaymentMethod();
+    if (!pmId) {
+      setBusy(false);
+      Alert.alert('카드 등록이 필요해요', '참여하려면 먼저 결제수단(카드)을 등록해주세요.', [
+        { text: '취소', style: 'cancel' },
+        { text: '등록하러 가기', onPress: () => (navigation as any).getParent()?.navigate('내정보', { screen: 'PaymentMethods' }) },
+      ]);
+      return;
+    }
     const { error: e } = await supabase.rpc('join_groupbuy', { gb_id: groupBuy.id, pm_id: pmId, want_qty: 1 });
     setBusy(false);
     if (e) {

@@ -1,5 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { Alert, Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { issueBillingKey, parseBillingAuthParams } from '../lib/toss';
 
 export type VerificationStatus = 'checking' | 'none' | 'verified';
 
@@ -76,6 +78,35 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       }
     })();
   }, [refreshVerification]);
+
+  // 토스 카드 등록(빌링 인증) 화면에서 돌아왔을 때 처리. React Navigation이 URL과 화면을
+  // 안 묶어놔서 어느 화면으로 돌아올지 알 수 없어 앱 진입점인 여기서 한 번만 처리한다.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const parsed = parseBillingAuthParams(window.location.search);
+    if (!parsed) return;
+    // 먼저 URL을 정리해 새로고침/재실행 시 중복 처리되지 않게 한다.
+    window.history.replaceState({}, '', window.location.pathname);
+    (async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return;
+        const result = await issueBillingKey(parsed.authKey, parsed.customerKey);
+        const { error } = await supabase.from('payment_methods').insert({
+          user_id: user.id,
+          label: `${result.card.company} ${result.card.number}`,
+          billing_key: result.billingKey,
+          customer_key: parsed.customerKey,
+        });
+        if (error) throw error;
+        Alert.alert('카드 등록 완료', '이제 공구에 참여할 수 있어요.');
+      } catch (e) {
+        Alert.alert('카드 등록 실패', e instanceof Error ? e.message : '다시 시도해주세요.');
+      }
+    })();
+  }, []);
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut();

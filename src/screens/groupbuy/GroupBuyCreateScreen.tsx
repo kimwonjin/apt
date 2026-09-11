@@ -138,10 +138,18 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
       return;
     }
 
-    // 개설자는 자동으로 1번 참여자 (B-4)
-    const { data: pm } = await supabase.from('payment_methods').select('id').eq('user_id', user.id).limit(1).maybeSingle();
-    const pmId = pm?.id ?? (await supabase.from('payment_methods').insert({ user_id: user.id, label: '테스트카드 •••• 1234' }).select('id').single()).data?.id;
-    await supabase.rpc('join_groupbuy', { gb_id: data.id, pm_id: pmId ?? null, want_qty: 1 });
+    // 개설자는 자동으로 1번 참여자 (B-4) — 단, 실제 결제 승인엔 등록된 카드가 필요해서
+    // 카드가 없으면 자동 참여는 건너뛰고 상세 화면에서 직접 참여하도록 안내한다.
+    const { data: pm } = await supabase
+      .from('payment_methods')
+      .select('id')
+      .eq('user_id', user.id)
+      .not('billing_key', 'is', null)
+      .limit(1)
+      .maybeSingle();
+    if (pm) {
+      await supabase.rpc('join_groupbuy', { gb_id: data.id, pm_id: pm.id, want_qty: 1 });
+    }
 
     setSubmitting(false);
     navigation.replace('GroupBuyDetail', { groupBuyId: data.id });

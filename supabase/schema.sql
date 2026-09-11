@@ -191,6 +191,8 @@ create table payment_methods (
   user_id uuid not null references profiles(id) on delete cascade,
   label text not null,                  -- "우리카드 1234"
   is_default boolean not null default true,
+  billing_key text,                     -- 토스페이먼츠 빌링키. 실제 결제 승인에 필요(없으면 목업 카드).
+  customer_key text,                    -- 토스 customerKey(=user_id 문자열). 빌링키 발급/승인 시 필요.
   created_at timestamptz not null default now()
 );
 
@@ -465,11 +467,9 @@ begin
     if gb.participant_count >= gb.min_headcount then
       final_pct := groupbuy_discount_percent(gb.menu_id, gb.participant_count, gb.time_slot);
       update groupbuys set status = 'success', final_discount_percent = final_pct where id = gb.id;
-      -- 카드 캡처(목업): 홀드 → 캡처, 금액 확정.
-      update participations
-        set hold_status = 'captured',
-            charged_amount = round(gb.base_price * (100 - final_pct) / 100.0) * qty
-        where groupbuy_id = gb.id and hold_status = 'held';
+      -- 카드 캡처는 더 이상 여기서 자동으로 안 함(토스 실연동) — 운영자가
+      -- "주문 요청 관리" 화면에서 실제 결제 승인 API를 호출해 처리한다.
+      -- 참여자는 성사 시점엔 hold_status='held' 그대로 유지.
       insert into notifications (user_id, type, payload)
         select user_id, 'groupbuy_success',
                jsonb_build_object('title', '공구가 성사됐어요!', 'body', gb.title, 'groupbuy_id', gb.id)
@@ -647,9 +647,14 @@ create policy "creators view participations of their groupbuys" on participation
   using (exists (select 1 from groupbuys g where g.id = participations.groupbuy_id and g.creator_id = auth.uid()));
 create policy "users update own participation" on participations for update to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());   -- 픽업 수령 체크 등
+-- 운영자가 "주문 요청 관리"에서 전체 참여자를 보고 실제 결제(hold_status/charged_amount)를 처리해야 함.
+create policy "admins view all participations" on participations for select to authenticated using (is_admin());
+create policy "admins update participations" on participations for update to authenticated using (is_admin()) with check (is_admin());
 
 create policy "users manage own payment methods" on payment_methods for all to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
+-- 운영자가 결제 실행 시 참여자의 billing_key/customer_key를 조회해야 함(조회만, 수정은 불가).
+create policy "admins view all payment methods" on payment_methods for select to authenticated using (is_admin());
 
 create policy "participants view their rooms" on chat_rooms for select to authenticated using (is_room_participant(chat_rooms.id));
 create policy "participants view participant rows" on chat_participants for select to authenticated using (is_room_participant(chat_participants.room_id));
