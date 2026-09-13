@@ -1,15 +1,33 @@
 import { Alert as RNAlert, Platform } from 'react-native';
 
 // react-native-web의 Alert.alert()는 완전히 빈 함수라(node_modules/react-native-web/.../Alert)
-// 웹에서 호출해도 아무 일도 안 일어난다 — 버튼도 안 뜨고 onPress도 안 불림.
-// 이 앱은 웹이 주 배포 경로라 이 차이를 그대로 두면 "카드 등록해주세요" 같은 중요한
-// 안내가 웹에서만 조용히 씹힌다. RN의 Alert.alert와 같은 시그니처로 웹은
-// window.alert/confirm으로 동작하게 감싼다.
+// 웹에서 호출해도 아무 일도 안 일어난다. 그래서 처음엔 window.alert/confirm으로 대체했는데,
+// 브라우저(특히 iOS 사파리)가 한 페이지에서 대화상자가 반복되면 "추가 대화상자 표시 안 함"을
+// 자동으로 걸어버려서 이후 호출이 조용히 씹히는 문제가 있었다. 앱 안에서 직접 그리는
+// 오버레이(AlertHost, App.tsx에 마운트)로 바꿔서 이 문제를 근본적으로 없앤다.
 
-interface AlertButton {
+export interface AlertButton {
   text?: string;
   onPress?: () => void;
   style?: 'default' | 'cancel' | 'destructive';
+}
+export interface AlertRequest {
+  id: number;
+  title: string;
+  message?: string;
+  buttons: AlertButton[];
+}
+
+type Listener = (req: AlertRequest) => void;
+let listener: Listener | null = null;
+let nextId = 1;
+
+/** AlertHost 전용 — 마운트 시 구독, 언마운트 시 해제. */
+export function subscribeAlertHost(fn: Listener): () => void {
+  listener = fn;
+  return () => {
+    if (listener === fn) listener = null;
+  };
 }
 
 function alert(title: string, message?: string, buttons?: AlertButton[]): void {
@@ -17,26 +35,13 @@ function alert(title: string, message?: string, buttons?: AlertButton[]): void {
     RNAlert.alert(title, message, buttons as any);
     return;
   }
-
-  const text = message ? `${title}\n\n${message}` : title;
-
-  if (!buttons || buttons.length === 0) {
-    window.alert(text);
-    return;
-  }
-  if (buttons.length === 1) {
-    window.alert(text);
-    buttons[0].onPress?.();
-    return;
-  }
-
-  // 버튼 2개 이상은 confirm(취소 vs 확인)으로 단순화.
-  const cancelBtn = buttons.find((b) => b.style === 'cancel');
-  const confirmBtn = buttons.find((b) => b !== cancelBtn) ?? buttons[buttons.length - 1];
-  if (window.confirm(text)) {
-    confirmBtn?.onPress?.();
+  const finalButtons = buttons && buttons.length > 0 ? buttons : [{ text: '확인' }];
+  if (listener) {
+    listener({ id: nextId++, title, message, buttons: finalButtons });
   } else {
-    cancelBtn?.onPress?.();
+    // AlertHost가 아직 마운트되기 전이면 최후 수단.
+    window.alert(message ? `${title}\n\n${message}` : title);
+    finalButtons[0]?.onPress?.();
   }
 }
 
