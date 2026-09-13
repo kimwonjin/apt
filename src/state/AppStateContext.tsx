@@ -1,7 +1,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { Alert, Platform } from 'react-native';
+import { Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { issueBillingKey, parseBillingAuthParams } from '../lib/toss';
+import { Alert } from '../lib/alert';
 
 export type VerificationStatus = 'checking' | 'none' | 'verified';
 

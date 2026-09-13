@@ -1,11 +1,12 @@
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { MyPageStackParamList } from '../../navigation/types';
 import { supabase } from '../../lib/supabase';
 import { requestCardRegistration } from '../../lib/toss';
+import { Alert } from '../../lib/alert';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
 
 type Props = NativeStackScreenProps<MyPageStackParamList, 'PaymentMethods'>;
