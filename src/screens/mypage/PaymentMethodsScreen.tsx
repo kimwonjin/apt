@@ -50,7 +50,8 @@ export function PaymentMethodsScreen({ navigation }: Props) {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) throw new Error('로그인이 필요해요.');
-      await requestCardRegistration(user.id); // 성공하면 토스 화면으로 이동(페이지 이탈)
+      const { data: profile } = await supabase.from('profiles').select('name').eq('id', user.id).maybeSingle();
+      await requestCardRegistration(user.id, user.email ?? undefined, profile?.name ?? undefined); // 성공하면 토스 화면으로 이동(페이지 이탈)
     } catch (e) {
       Alert.alert('카드 등록 실패', e instanceof Error ? e.message : '다시 시도해주세요.');
       setAdding(false);

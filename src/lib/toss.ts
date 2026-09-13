@@ -80,11 +80,20 @@ function loadTossSdk(): Promise<void> {
  * 카드 등록(빌링 인증) 화면으로 이동한다. 카드사 인증 특성상 새 창이 아니라 페이지 자체가
  * 이동하며, 완료되면 지금 이 URL(쿼리파라미터만 붙어서)로 되돌아온다 — 처리는
  * AppStateContext에서 앱 시작 시 한 번 담당(parseBillingAuthParams + issueBillingKey).
+ *
+ * 주의: requestBillingAuth는 인자 1개(객체)만 받는다 — method를 따로 안 넘기고
+ * 객체 안에 넣어야 한다. 바깥에 따로 넘기면 "파라미터에 사용할 수 없는 enum 값" 에러가 난다.
  */
-export async function requestCardRegistration(customerKey: string): Promise<void> {
+export async function requestCardRegistration(customerKey: string, customerEmail?: string, customerName?: string): Promise<void> {
   await loadTossSdk();
   const tossPayments = (window as any).TossPayments(TOSS_CLIENT_KEY);
   const payment = tossPayments.payment({ customerKey });
   const returnUrl = window.location.origin + window.location.pathname;
-  await payment.requestBillingAuth('CARD', { successUrl: returnUrl, failUrl: returnUrl });
+  await payment.requestBillingAuth({
+    method: 'CARD',
+    successUrl: returnUrl,
+    failUrl: returnUrl,
+    customerEmail,
+    customerName,
+  });
 }
