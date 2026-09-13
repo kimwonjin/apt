@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { issueBillingKey, parseBillingAuthParams } from '../lib/toss';
+import { issueBillingKey, parseBillingAuthParams, parseBillingFailParams } from '../lib/toss';
 import { Alert } from '../lib/alert';
 
 export type VerificationStatus = 'checking' | 'none' | 'verified';
@@ -84,6 +84,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   // 안 묶어놔서 어느 화면으로 돌아올지 알 수 없어 앱 진입점인 여기서 한 번만 처리한다.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
+
+    const failed = parseBillingFailParams(window.location.search);
+    if (failed) {
+      window.history.replaceState({}, '', window.location.pathname);
+      Alert.alert('카드 등록 실패', `${failed.message} (${failed.code})`);
+      return;
+    }
+
     const parsed = parseBillingAuthParams(window.location.search);
     if (!parsed) return;
     // 먼저 URL을 정리해 새로고침/재실행 시 중복 처리되지 않게 한다.

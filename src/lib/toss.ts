@@ -51,13 +51,22 @@ export function chargeBilling(
   return tossApi<TossChargeResult>(`/v1/billing/${billingKey}`, opts);
 }
 
-/** 카드 등록 화면 리다이렉트에서 돌아왔을 때 URL에 붙는 쿼리 파라미터. */
+/** 카드 등록 성공 시 successUrl에 붙는 쿼리 파라미터: ?customerKey=...&authKey=... */
 export function parseBillingAuthParams(search: string): { authKey: string; customerKey: string } | null {
   const params = new URLSearchParams(search);
   const authKey = params.get('authKey');
   const customerKey = params.get('customerKey');
   if (!authKey || !customerKey) return null;
   return { authKey, customerKey };
+}
+
+/** 카드 등록 실패 시 failUrl에 붙는 쿼리 파라미터: ?code=...&message=... */
+export function parseBillingFailParams(search: string): { code: string; message: string } | null {
+  const params = new URLSearchParams(search);
+  const code = params.get('code');
+  const message = params.get('message');
+  if (!code) return null;
+  return { code, message: message ?? '카드 등록에 실패했어요.' };
 }
 
 // 웹 전용: 다음 우편번호 검색(AddressSearch.web.tsx)과 같은 방식으로 SDK 스크립트를 동적 로드.
