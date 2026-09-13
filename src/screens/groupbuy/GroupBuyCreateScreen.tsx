@@ -97,9 +97,9 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
   const selectedOption = DEADLINE_OPTIONS.find((o) => o.hour === deadlineHour) ?? null;
   const slot: TimeSlot = selectedOption?.slot ?? 'peak';
 
-  const minHc = Math.max(Number(minHeadcount) || 0, 3);
+  const minHc = Math.max(Number(minHeadcount) || 0, 2);
   const isValid =
-    !!buildingId && !!menu && deadline !== null && deadline.getTime() > Date.now() + 30 * 60 * 1000 && minHc >= 3;
+    !!buildingId && !!menu && deadline !== null && deadline.getTime() > Date.now() + 30 * 60 * 1000 && minHc >= 2;
 
   const handleSubmit = async () => {
     if (!isValid || !menu || !deadline || !buildingId) return;
@@ -216,13 +216,13 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
             )}
           </Field>
 
-          <Field label="최소 성사 인원 (3명 이상)">
+          <Field label="최소 성사 인원 (2명 이상)">
             <TextInput
               style={styles.input}
               value={minHeadcount}
               onChangeText={setMinHeadcount}
               keyboardType="number-pad"
-              placeholder="3"
+              placeholder="2"
               placeholderTextColor={colors.textDisabled}
             />
           </Field>
