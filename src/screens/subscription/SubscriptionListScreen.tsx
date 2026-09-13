@@ -1,14 +1,19 @@
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { Alert } from '../../lib/alert';
 import { useAppState } from '../../state/AppStateContext';
 import { supabase } from '../../lib/supabase';
 import { AppHeader } from '../../components/AppHeader';
+import { TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
 import { colors, fontSize, fontWeight, radius, screenPadding, spacing } from '../../theme';
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
-const SLOT_LABEL: Record<string, string> = { offpeak: '오프피크(9~10시)', peak: '피크(11~12시)' };
+function slotLabel(slot: TimeSlot) {
+  const { name, hint } = TIME_SLOT_LABEL[slot];
+  return `${name} (${hint})`;
+}
 
 interface GroupRow {
   id: string;
@@ -23,6 +28,7 @@ interface GroupRow {
 // 탭 D "요일 다이어트 밥이". 파일럿 최소 구현: 빌딩의 구독그룹 목록 + 구독 on/off.
 // 회차별 결제취소(D-3)·모드 선택(D-2)·이력(D-5)은 후속.
 export function SubscriptionListScreen() {
+  const navigation = useNavigation();
   const { buildingId } = useAppState();
   const [rows, setRows] = useState<GroupRow[]>([]);
   const [subscribedIds, setSubscribedIds] = useState<Set<string>>(new Set());
@@ -73,12 +79,29 @@ export function SubscriptionListScreen() {
     }
     if (subscribedIds.has(groupId)) {
       await supabase.from('subscriptions').delete().eq('user_id', user.id).eq('group_id', groupId);
-    } else {
-      const { data: pm } = await supabase.from('payment_methods').select('id').eq('user_id', user.id).limit(1).maybeSingle();
-      await supabase
-        .from('subscriptions')
-        .upsert({ user_id: user.id, group_id: groupId, payment_method_id: pm?.id ?? null, active: true }, { onConflict: 'user_id,group_id' });
+      setBusy(null);
+      refresh();
+      return;
     }
+    // 구독도 실제 결제 승인이 필요해서 등록된 카드(billing_key)가 있어야 신청 가능.
+    const { data: pm } = await supabase
+      .from('payment_methods')
+      .select('id')
+      .eq('user_id', user.id)
+      .not('billing_key', 'is', null)
+      .limit(1)
+      .maybeSingle();
+    if (!pm) {
+      setBusy(null);
+      Alert.alert('카드 등록이 필요해요', '구독하려면 먼저 결제수단(카드)을 등록해주세요.', [
+        { text: '취소', style: 'cancel' },
+        { text: '등록하러 가기', onPress: () => (navigation as any).getParent()?.navigate('내정보', { screen: 'PaymentMethods' }) },
+      ]);
+      return;
+    }
+    await supabase
+      .from('subscriptions')
+      .upsert({ user_id: user.id, group_id: groupId, payment_method_id: pm.id, active: true }, { onConflict: 'user_id,group_id' });
     setBusy(null);
     refresh();
   };
@@ -111,7 +134,7 @@ export function SubscriptionListScreen() {
                     매주 {WEEKDAYS[item.weekday]}요일 · {name(item.restaurants)}
                   </Text>
                   <Text style={styles.sub}>
-                    {name(item.menus)} · {SLOT_LABEL[item.time_slot]} · 최소 {item.min_headcount}명
+                    {name(item.menus)} · {slotLabel(item.time_slot as TimeSlot)} · 최소 {item.min_headcount}명
                   </Text>
                   {item.pickup_place && <Text style={styles.sub}>픽업: {item.pickup_place}</Text>}
                 </View>

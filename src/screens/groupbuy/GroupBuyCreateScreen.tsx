@@ -6,8 +6,7 @@ import { HomeStackParamList } from '../../navigation/types';
 import { useAppState } from '../../state/AppStateContext';
 import { supabase } from '../../lib/supabase';
 import { formatPrice } from '../../lib/format';
-import { chargeAmount, discountPercent } from '../../lib/discount';
-import { TimeSlot } from '../../types/domain';
+import { buildDiscountTable, chargeAmount, DEFAULT_DISCOUNT_TABLE, DiscountTable, discountPercent, TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'GroupBuyCreate'>;
@@ -23,11 +22,11 @@ interface MenuRow {
   min_headcount: number;
 }
 
-const SLOTS: { slot: TimeSlot; label: string }[] = [
-  { slot: 'offpeak', label: '오프피크 (9~10시 주문)' },
-  { slot: 'peak', label: '피크 (11~12시 주문)' },
+// 마감 시각을 고르면 그게 곧 할인 시간대(time_slot)가 된다 — 이를수록(오프피크) 할인율이 높다.
+const DEADLINE_OPTIONS: { hour: number; slot: TimeSlot }[] = [
+  { hour: 10, slot: 'offpeak' },
+  { hour: 12, slot: 'peak' },
 ];
-const DEADLINE_HOURS = [9, 10, 11, 12, 13, 14];
 const PREVIEW_TIERS = [4, 5, 10, 20];
 
 export function GroupBuyCreateScreen({ navigation }: Props) {
@@ -36,7 +35,7 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
   const [menus, setMenus] = useState<MenuRow[]>([]);
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuRow | null>(null);
-  const [slot, setSlot] = useState<TimeSlot>('peak');
+  const [discountTable, setDiscountTable] = useState<DiscountTable>(DEFAULT_DISCOUNT_TABLE);
   const [deadlineHour, setDeadlineHour] = useState<number | null>(null);
   const [minHeadcount, setMinHeadcount] = useState('3');
   const [pickupPlace, setPickupPlace] = useState('1층 로비');
@@ -74,18 +73,33 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
 
   useEffect(() => {
     if (menu) setMinHeadcount(String(menu.min_headcount));
+    if (!menu) {
+      setDiscountTable(DEFAULT_DISCOUNT_TABLE);
+      return;
+    }
+    supabase
+      .from('menu_discount_tiers')
+      .select('time_slot, min_headcount, discount_percent')
+      .eq('menu_id', menu.id)
+      .then(({ data }) => setDiscountTable(buildDiscountTable(data ?? []) ?? DEFAULT_DISCOUNT_TABLE));
   }, [menu]);
 
+  // 오늘 그 시각이 이미 지났으면(또는 30분 미만 남았으면) 내일 같은 시각으로 넘긴다.
+  // 안 그러면 오후엔 '10시 이전/12시 이전' 둘 다 항상 과거가 돼서 공구를 아예 못 만든다.
   const deadline = useMemo(() => {
     if (deadlineHour == null) return null;
     const d = new Date();
     d.setHours(deadlineHour, 0, 0, 0);
+    if (d.getTime() <= Date.now() + 30 * 60 * 1000) d.setDate(d.getDate() + 1);
     return d;
   }, [deadlineHour]);
+  const isDeadlineTomorrow = !!deadline && deadline.getDate() !== new Date().getDate();
+  const selectedOption = DEADLINE_OPTIONS.find((o) => o.hour === deadlineHour) ?? null;
+  const slot: TimeSlot = selectedOption?.slot ?? 'peak';
 
-  const minHc = Math.max(Number(minHeadcount) || 0, 3);
+  const minHc = Math.max(Number(minHeadcount) || 0, 2);
   const isValid =
-    !!buildingId && !!menu && deadline !== null && deadline.getTime() > Date.now() + 30 * 60 * 1000 && minHc >= 3;
+    !!buildingId && !!menu && deadline !== null && deadline.getTime() > Date.now() + 30 * 60 * 1000 && minHc >= 2;
 
   const handleSubmit = async () => {
     if (!isValid || !menu || !deadline || !buildingId) return;
@@ -124,10 +138,18 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
       return;
     }
 
-    // 개설자는 자동으로 1번 참여자 (B-4)
-    const { data: pm } = await supabase.from('payment_methods').select('id').eq('user_id', user.id).limit(1).maybeSingle();
-    const pmId = pm?.id ?? (await supabase.from('payment_methods').insert({ user_id: user.id, label: '테스트카드 •••• 1234' }).select('id').single()).data?.id;
-    await supabase.rpc('join_groupbuy', { gb_id: data.id, pm_id: pmId ?? null, want_qty: 1 });
+    // 개설자는 자동으로 1번 참여자 (B-4) — 단, 실제 결제 승인엔 등록된 카드가 필요해서
+    // 카드가 없으면 자동 참여는 건너뛰고 상세 화면에서 직접 참여하도록 안내한다.
+    const { data: pm } = await supabase
+      .from('payment_methods')
+      .select('id')
+      .eq('user_id', user.id)
+      .not('billing_key', 'is', null)
+      .limit(1)
+      .maybeSingle();
+    if (pm) {
+      await supabase.rpc('join_groupbuy', { gb_id: data.id, pm_id: pm.id, want_qty: 1 });
+    }
 
     setSubmitting(false);
     navigation.replace('GroupBuyDetail', { groupBuyId: data.id });
@@ -175,32 +197,32 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
             </Field>
           )}
 
-          <Field label="주문 시간대">
+          <Field label="주문 시간대 — 이를수록 할인율이 높아요">
             <View style={styles.row}>
-              {SLOTS.map((s) => (
-                <Chip key={s.slot} label={s.label} active={slot === s.slot} onPress={() => setSlot(s.slot)} />
+              {DEADLINE_OPTIONS.map((o) => (
+                <Chip
+                  key={o.hour}
+                  label={TIME_SLOT_LABEL[o.slot].name}
+                  sublabel={`(${TIME_SLOT_LABEL[o.slot].hint})`}
+                  active={deadlineHour === o.hour}
+                  onPress={() => setDeadlineHour(o.hour)}
+                />
               ))}
             </View>
-          </Field>
-
-          <Field label="마감 시각 (오늘)">
-            <View style={styles.row}>
-              {DEADLINE_HOURS.map((h) => (
-                <Chip key={h} label={`${h}시`} active={deadlineHour === h} onPress={() => setDeadlineHour(h)} />
-              ))}
-            </View>
-            {deadline && deadline.getTime() <= Date.now() + 30 * 60 * 1000 && (
-              <Text style={styles.note}>지금 기준 30분 이후로 마감을 잡아주세요.</Text>
+            {deadline && (
+              <Text style={styles.note}>
+                {isDeadlineTomorrow ? '내일' : '오늘'} {deadlineHour}시 마감으로 잡혀요.
+              </Text>
             )}
           </Field>
 
-          <Field label="최소 성사 인원 (3명 이상)">
+          <Field label="최소 성사 인원 (2명 이상)">
             <TextInput
               style={styles.input}
               value={minHeadcount}
               onChangeText={setMinHeadcount}
               keyboardType="number-pad"
-              placeholder="3"
+              placeholder="2"
               placeholderTextColor={colors.textDisabled}
             />
           </Field>
@@ -220,13 +242,13 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
 
           {menu && (
             <View style={styles.previewBox}>
-              <Text style={styles.previewTitle}>인원별 예상 가격 ({slot === 'peak' ? '피크' : '오프피크'})</Text>
+              <Text style={styles.previewTitle}>인원별 예상 가격 ({TIME_SLOT_LABEL[slot].name})</Text>
               {PREVIEW_TIERS.map((n) => (
                 <View key={n} style={styles.previewRow}>
                   <Text style={styles.previewLabel}>{n < 5 ? `${n}명 (최소 미만)` : `${n}명`}</Text>
                   <Text style={styles.previewValue}>
-                    {formatPrice(chargeAmount(menu.base_price, n, slot))}
-                    <Text style={styles.previewPct}> ({discountPercent(n, slot)}%↓)</Text>
+                    {formatPrice(chargeAmount(menu.base_price, n, slot, discountTable))}
+                    <Text style={styles.previewPct}> ({discountPercent(n, slot, discountTable)}%↓)</Text>
                   </Text>
                 </View>
               ))}
@@ -255,10 +277,11 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function Chip({ label, sublabel, active, onPress }: { label: string; sublabel?: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable style={[styles.chip, active && styles.chipActive]} onPress={onPress}>
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+      {sublabel && <Text style={[styles.chipSubtext, active && styles.chipTextActive]}>{sublabel}</Text>}
     </Pressable>
   );
 }
@@ -274,9 +297,10 @@ const styles = StyleSheet.create({
   fieldLabel: { fontSize: fontSize.md, color: colors.textSecondary, fontWeight: fontWeight.medium },
   note: { fontSize: fontSize.base, color: colors.textTertiary },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  chip: { paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.fillSubtle },
+  chip: { paddingHorizontal: spacing.md, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.fillSubtle, alignItems: 'center' },
   chipActive: { backgroundColor: colors.primary },
   chipText: { fontSize: fontSize.md, color: colors.textSecondary, fontWeight: fontWeight.medium },
+  chipSubtext: { fontSize: 11, color: colors.textTertiary, marginTop: 1 },
   chipTextActive: { color: colors.white, fontWeight: fontWeight.semibold },
   input: {
     borderWidth: 1,
