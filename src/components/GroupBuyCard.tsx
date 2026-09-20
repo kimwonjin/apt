@@ -2,7 +2,7 @@ import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { GroupBuy } from '../types/domain';
 import { colors, fontSize, fontWeight, radius, spacing } from '../theme';
-import { formatDday, formatPrice } from '../lib/format';
+import { formatDate, formatDday, formatPrice } from '../lib/format';
 import { nextTier, priceAfterDiscount } from '../lib/discount';
 
 interface Props {
@@ -50,6 +50,7 @@ export function GroupBuyCard({ groupBuy, onPress }: Props) {
 
         <Text style={styles.restaurant} numberOfLines={1}>
           {groupBuy.restaurant.name}
+          {status !== 'open' ? ` · ${formatDate(groupBuy.deadline)}` : ''}
         </Text>
 
         <View style={styles.priceRow}>

@@ -27,6 +27,12 @@ export function weekLabel(monday: Date): string {
   return `${fmt(monday)} ~ ${fmt(sunday)}`;
 }
 
+/** "9/13" 형태의 짧은 날짜 라벨(마감일 등 지난 공구가 언제였는지 표시할 때 사용). */
+export function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
 export function formatRelative(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const minutes = Math.floor(diffMs / (1000 * 60));

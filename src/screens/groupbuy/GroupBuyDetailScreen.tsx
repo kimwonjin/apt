@@ -8,7 +8,7 @@ import { HomeStackParamList } from '../../navigation/types';
 import { useGroupBuy } from '../../hooks/useGroupBuy';
 import { supabase } from '../../lib/supabase';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
-import { formatDday, formatPrice } from '../../lib/format';
+import { formatDate, formatDday, formatPrice } from '../../lib/format';
 import { nextTier, priceAfterDiscount, TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'GroupBuyDetail'>;
@@ -161,7 +161,9 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
             <Text style={styles.categoryBadgeText}>{groupBuy.restaurant.name}</Text>
           </View>
           <View style={styles.ddayBadge}>
-            <Text style={styles.ddayText}>{isOpen ? formatDday(groupBuy.deadline) : '마감'}</Text>
+            <Text style={styles.ddayText}>
+              {isOpen ? formatDday(groupBuy.deadline) : `${formatDate(groupBuy.deadline)} 마감`}
+            </Text>
           </View>
         </View>
 
