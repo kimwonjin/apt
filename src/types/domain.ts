@@ -56,6 +56,7 @@ export interface GroupBuy {
   pickupTime?: string;
   subscriptionGroupId?: string;
   discountTable?: DiscountTable; // 이 공구의 메뉴에 등록된 할인 매트릭스. 없으면 다음 구간 힌트 계산 시 기본표로 폴백.
+  pricingMode: 'menu' | 'fixed'; // menu: 메뉴별 할인 매트릭스 / fixed: 자유참여형(만들기2) 고정 인원 구간표
 }
 
 // 내 참여 상태

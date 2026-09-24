@@ -167,6 +167,8 @@ create table groupbuys (
   bumped_at timestamptz,                -- 끌어올리기
   order_sent_at timestamptz,            -- 운영자가 식당에 주문 요청을 전달한 시각(수동 확인 체크)
   settled_at timestamptz,               -- 운영자가 이 공구 매출을 식당 계좌로 정산 완료한 시각
+  pricing_mode text not null default 'menu' check (pricing_mode in ('menu', 'fixed')),
+    -- menu: 메뉴별 할인 매트릭스(menu_discount_tiers) / fixed: 자유참여형("만들기2") 고정 인원 구간표
   created_at timestamptz not null default now(),
   check (min_headcount >= 1)
 );
@@ -327,6 +329,20 @@ returns int language sql stable as $$
   );
 $$;
 
+-- "만들기2"(자유참여형) 공구용 고정 계단식 할인율 — 메뉴 매트릭스와 무관하게 인원수만 본다.
+-- 1명 0% · 2~3명 5% · 4~9명 10% · 10~19명 15% · 20명 이상 20%.
+-- src/lib/discount.ts의 FIXED_DISCOUNT_TABLE과 값이 같아야 함.
+create or replace function fixed_tier_discount_percent(headcount int)
+returns int language sql immutable as $$
+  select case
+    when headcount >= 20 then 20
+    when headcount >= 10 then 15
+    when headcount >= 4 then 10
+    when headcount >= 2 then 5
+    else 0
+  end;
+$$;
+
 -- ── 참여 증감 → participant_count + discount_percent 실시간 갱신 ──
 create or replace function refresh_groupbuy_stats()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -335,12 +351,16 @@ declare
   cnt int;
   slot groupbuy_time_slot;
   m_id uuid;
+  mode text;
 begin
   select count(*) into cnt from participations where groupbuy_id = gb_id;
-  select time_slot, menu_id into slot, m_id from groupbuys where id = gb_id;
+  select time_slot, menu_id, pricing_mode into slot, m_id, mode from groupbuys where id = gb_id;
   update groupbuys
     set participant_count = cnt,
-        discount_percent = groupbuy_discount_percent(m_id, cnt, slot)
+        discount_percent = case
+          when mode = 'fixed' then fixed_tier_discount_percent(cnt)
+          else groupbuy_discount_percent(m_id, cnt, slot)
+        end
     where id = gb_id and status = 'open';
   return null;
 end;
@@ -466,7 +486,10 @@ begin
     select * from groupbuys where status = 'open' and deadline <= now() for update skip locked
   loop
     if gb.participant_count >= gb.min_headcount then
-      final_pct := groupbuy_discount_percent(gb.menu_id, gb.participant_count, gb.time_slot);
+      final_pct := case
+        when gb.pricing_mode = 'fixed' then fixed_tier_discount_percent(gb.participant_count)
+        else groupbuy_discount_percent(gb.menu_id, gb.participant_count, gb.time_slot)
+      end;
       update groupbuys set status = 'success', final_discount_percent = final_pct where id = gb.id;
       -- 카드 캡처는 더 이상 여기서 자동으로 안 함(토스 실연동) — 운영자가
       -- "주문 요청 관리" 화면에서 실제 결제 승인 API를 호출해 처리한다.

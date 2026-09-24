@@ -167,7 +167,10 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
           </View>
         </View>
 
-        <Text style={styles.title}>{groupBuy.title}</Text>
+        <Text style={styles.title}>
+          {groupBuy.pricingMode === 'fixed' ? '🧪 자유참여형 · ' : ''}
+          {groupBuy.title}
+        </Text>
 
         <View style={styles.priceRow}>
           {discountPercent > 0 && <Text style={styles.discount}>{discountPercent}%↓</Text>}

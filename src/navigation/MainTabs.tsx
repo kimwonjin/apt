@@ -14,6 +14,7 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 const TAB_ICON: Record<keyof MainTabParamList, string> = {
   홈: '🏠',
   만들기: '➕',
+  '만들기2': '🧪',
   채팅: '💬',
   구독: '🗓️',
   내정보: '👤',
@@ -23,6 +24,7 @@ const TAB_ICON: Record<keyof MainTabParamList, string> = {
 const SUB_SCREENS = new Set([
   'GroupBuyDetail',
   'GroupBuyCreate',
+  'GroupBuyCreateOpen',
   'ChatRoom',
   'SubscriptionDetail',
   'MyParticipations',
@@ -58,6 +60,16 @@ export function MainTabs() {
           tabPress: (e) => {
             e.preventDefault();
             (navigation as any).navigate('홈', { screen: 'GroupBuyCreate' });
+          },
+        })}
+      />
+      <Tab.Screen
+        name="만들기2"
+        component={HomeStack}
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            e.preventDefault();
+            (navigation as any).navigate('홈', { screen: 'GroupBuyCreateOpen' });
           },
         })}
       />

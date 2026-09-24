@@ -69,6 +69,18 @@ export function priceAfterDiscount(basePrice: number, percent: number): number {
   return Math.round((basePrice * (100 - percent)) / 100);
 }
 
+// "만들기2"(자유참여형) 공구 전용 고정 할인율 — 메뉴별 매트릭스와 무관하게 인원수만 본다.
+// 1명 0% · 2~3명 5% · 4~9명 10% · 10~19명 15% · 20명 이상 20%. 시간대 구분 없음(오프피크/피크 동일).
+// DB의 fixed_tier_discount_percent()와 값이 같아야 함.
+const FIXED_TIERS: ReadonlyArray<DiscountTier> = [
+  [0, 0],
+  [2, 5],
+  [4, 10],
+  [10, 15],
+  [20, 20],
+];
+export const FIXED_DISCOUNT_TABLE: DiscountTable = { offpeak: FIXED_TIERS, peak: FIXED_TIERS };
+
 /** menu_discount_tiers 테이블에서 읽은 행(time_slot, min_headcount, discount_percent)을 DiscountTable로 변환. */
 export function buildDiscountTable(
   rows: ReadonlyArray<{ time_slot: TimeSlot; min_headcount: number; discount_percent: number }>

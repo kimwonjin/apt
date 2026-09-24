@@ -2,6 +2,7 @@ export type HomeStackParamList = {
   HomeList: undefined;
   GroupBuyDetail: { groupBuyId: string };
   GroupBuyCreate: undefined;
+  GroupBuyCreateOpen: undefined;
   Notifications: undefined;
 };
 
@@ -35,6 +36,7 @@ export type MyPageStackParamList = {
 export type MainTabParamList = {
   홈: undefined;
   만들기: undefined;
+  '만들기2': undefined;
   채팅: undefined;
   구독: undefined;
   내정보: undefined;

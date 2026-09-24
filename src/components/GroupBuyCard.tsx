@@ -39,6 +39,7 @@ export function GroupBuyCard({ groupBuy, onPress }: Props) {
         <View style={styles.titleRow}>
           <Text style={styles.title} numberOfLines={1}>
             {isBumped ? '🔥 ' : ''}
+            {groupBuy.pricingMode === 'fixed' ? '🧪 ' : ''}
             {groupBuy.title}
           </Text>
           <View style={[styles.ddayBadge, { backgroundColor: badgeColor.bg }]}>
