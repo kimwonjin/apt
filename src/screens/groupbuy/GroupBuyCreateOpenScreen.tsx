@@ -29,6 +29,8 @@ const DEADLINE_OPTIONS: { hour: number; slot: TimeSlot }[] = [
 ];
 // 고정 할인표의 구간이 바뀌는 지점만 미리보기로 보여준다(1/2/4/10/20명).
 const PREVIEW_TIERS = [1, 2, 4, 10, 20];
+// 이 구조는 최소 인원을 따로 입력받지 않고 항상 2명으로 고정한다.
+const MIN_HEADCOUNT = 2;
 
 // "만들기2" — 공구대장이 인원을 미리 모아오는 게 아니라 공구만 열어두고 건물 사람들이
 // 자유롭게 참여하는 방식(자유참여형). 메뉴별 할인 매트릭스 대신 인원수만 보는 고정
@@ -40,7 +42,6 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuRow | null>(null);
   const [deadlineHour, setDeadlineHour] = useState<number | null>(null);
-  const [minHeadcount, setMinHeadcount] = useState('2');
   const [pickupPlace, setPickupPlace] = useState('1층 로비');
   const [pickupTime, setPickupTime] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -74,10 +75,6 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
       .then(({ data }) => setMenus(data ?? []));
   }, [restaurantId]);
 
-  useEffect(() => {
-    if (menu) setMinHeadcount(String(Math.max(menu.min_headcount, 2)));
-  }, [menu]);
-
   // 오늘 그 시각이 이미 지났으면(또는 30분 미만 남았으면) 내일 같은 시각으로 넘긴다.
   const deadline = useMemo(() => {
     if (deadlineHour == null) return null;
@@ -90,9 +87,7 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
   const selectedOption = DEADLINE_OPTIONS.find((o) => o.hour === deadlineHour) ?? null;
   const slot: TimeSlot = selectedOption?.slot ?? 'peak';
 
-  const minHc = Math.max(Number(minHeadcount) || 0, 2);
-  const isValid =
-    !!buildingId && !!menu && deadline !== null && deadline.getTime() > Date.now() + 30 * 60 * 1000 && minHc >= 2;
+  const isValid = !!buildingId && !!menu && deadline !== null && deadline.getTime() > Date.now() + 30 * 60 * 1000;
 
   const handleSubmit = async () => {
     if (!isValid || !menu || !deadline || !buildingId) return;
@@ -117,7 +112,7 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
         title: menu.name,
         base_price: menu.base_price,
         time_slot: slot,
-        min_headcount: minHc,
+        min_headcount: MIN_HEADCOUNT,
         pricing_mode: 'fixed',
         deadline: deadline.toISOString(),
         pickup_place: pickupPlace.trim() || null,
@@ -213,18 +208,7 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
             )}
           </Field>
 
-          <Field label="최소 성사 인원 (2명 이상)">
-            <TextInput
-              style={styles.input}
-              value={minHeadcount}
-              onChangeText={setMinHeadcount}
-              keyboardType="number-pad"
-              placeholder="2"
-              placeholderTextColor={colors.textDisabled}
-            />
-          </Field>
-
-          <Field label="로비 픽업 장소">
+          <Field label="픽업 장소">
             <TextInput style={styles.input} value={pickupPlace} onChangeText={setPickupPlace} placeholderTextColor={colors.textDisabled} />
           </Field>
           <Field label="수령 예정 시각 (표시용)">
@@ -238,20 +222,45 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
           </Field>
 
           <View style={styles.previewBox}>
-            <Text style={styles.previewTitle}>현재 참여 인원</Text>
-            <Text style={styles.currentCount}>1명 (개설자 자동 참여)</Text>
+            <View style={styles.countRow}>
+              <Text style={styles.countLabel}>현재 참여 인원</Text>
+              <Text style={styles.countValue}>
+                1<Text style={styles.countUnit}>명</Text>
+              </Text>
+            </View>
+            <Text style={styles.countNote}>개설자 자동 참여 · 최소 {MIN_HEADCOUNT}명 모이면 성사돼요</Text>
 
-            <Text style={[styles.previewTitle, { marginTop: spacing.sm }]}>인원별 예상 가격 (고정 할인율)</Text>
+            <View style={styles.tierTrack}>
+              {PREVIEW_TIERS.map((n, i) => {
+                const reached = n <= 1;
+                return (
+                  <React.Fragment key={n}>
+                    {i > 0 && <View style={[styles.tierLine, reached && styles.tierLineActive]} />}
+                    <View style={styles.tierStep}>
+                      <View style={[styles.tierDot, reached && styles.tierDotActive]}>
+                        <Text style={[styles.tierDotText, reached && styles.tierDotTextActive]}>{n}</Text>
+                      </View>
+                      <Text style={styles.tierPct}>{discountPercent(n, slot, FIXED_DISCOUNT_TABLE)}%</Text>
+                    </View>
+                  </React.Fragment>
+                );
+              })}
+            </View>
+
             {menu ? (
-              PREVIEW_TIERS.map((n) => (
-                <View key={n} style={styles.previewRow}>
-                  <Text style={styles.previewLabel}>{n}명{n < minHc ? ' (최소 미만)' : ''}</Text>
-                  <Text style={styles.previewValue}>
-                    {formatPrice(chargeAmount(menu.base_price, n, slot, FIXED_DISCOUNT_TABLE))}
-                    <Text style={styles.previewPct}> ({discountPercent(n, slot, FIXED_DISCOUNT_TABLE)}%↓)</Text>
-                  </Text>
-                </View>
-              ))
+              <View style={styles.previewList}>
+                {PREVIEW_TIERS.map((n) => (
+                  <View key={n} style={[styles.previewRow, n === 1 && styles.previewRowActive]}>
+                    <Text style={styles.previewLabel}>
+                      {n}명{n === 1 ? ' (최소 미만)' : ''}
+                    </Text>
+                    <Text style={styles.previewValue}>
+                      {formatPrice(chargeAmount(menu.base_price, n, slot, FIXED_DISCOUNT_TABLE))}
+                      <Text style={styles.previewPct}> ({discountPercent(n, slot, FIXED_DISCOUNT_TABLE)}%↓)</Text>
+                    </Text>
+                  </View>
+                ))}
+              </View>
             ) : (
               <Text style={styles.note}>메뉴를 고르면 예상 가격이 보여요.</Text>
             )}
@@ -315,9 +324,30 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   previewBox: { backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.md, gap: spacing.xs },
-  previewTitle: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary, marginBottom: 2 },
-  currentCount: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold, color: colors.primary },
-  previewRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  countRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
+  countLabel: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  countValue: { fontSize: 30, fontWeight: fontWeight.heavy, color: colors.primary },
+  countUnit: { fontSize: fontSize.md, fontWeight: fontWeight.medium, color: colors.primary },
+  countNote: { fontSize: fontSize.base, color: colors.textTertiary, marginTop: -4 },
+  tierTrack: { flexDirection: 'row', alignItems: 'flex-start', marginTop: spacing.sm },
+  tierStep: { alignItems: 'center', gap: 3, width: 32 },
+  tierDot: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.fillSubtle,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tierDotActive: { backgroundColor: colors.primary },
+  tierDotText: { fontSize: 11, fontWeight: fontWeight.semibold, color: colors.textTertiary },
+  tierDotTextActive: { color: colors.white },
+  tierPct: { fontSize: 10, color: colors.textTertiary, fontWeight: fontWeight.medium },
+  tierLine: { flex: 1, height: 2, backgroundColor: colors.divider, marginTop: 13, marginHorizontal: -2 },
+  tierLineActive: { backgroundColor: colors.primary },
+  previewList: { marginTop: spacing.sm, gap: 4 },
+  previewRow: { flexDirection: 'row', justifyContent: 'space-between', borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 3 },
+  previewRowActive: { backgroundColor: colors.fillSubtle },
   previewLabel: { fontSize: fontSize.md, color: colors.textSecondary },
   previewValue: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.primary },
   previewPct: { fontSize: fontSize.base, color: colors.danger, fontWeight: fontWeight.medium },
