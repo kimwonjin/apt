@@ -20,6 +20,7 @@ interface MenuRow {
   name: string;
   base_price: number;
   min_headcount: number;
+  photo_url: string | null;
 }
 
 // 마감 시각을 고르면 그게 곧 할인 시간대(time_slot)가 된다 — 이를수록(오프피크) 할인율이 높다.
@@ -68,7 +69,7 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
     setMenu(null);
     supabase
       .from('menus')
-      .select('id, name, base_price, min_headcount')
+      .select('id, name, base_price, min_headcount, photo_url')
       .eq('restaurant_id', restaurantId)
       .eq('active', true)
       .order('name')
@@ -110,6 +111,7 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
         restaurant_id: restaurantId,
         menu_id: menu.id,
         title: menu.name,
+        photo_url: menu.photo_url,
         base_price: menu.base_price,
         time_slot: slot,
         min_headcount: MIN_HEADCOUNT,
