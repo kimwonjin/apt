@@ -325,7 +325,7 @@ const styles = StyleSheet.create({
   },
   previewBox: { backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.md, gap: spacing.xs },
   countRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
-  countLabel: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  countLabel: { fontSize: fontSize.titleLg, fontWeight: fontWeight.bold, color: colors.textPrimary },
   countValue: { fontSize: 30, fontWeight: fontWeight.heavy, color: colors.primary },
   countUnit: { fontSize: fontSize.md, fontWeight: fontWeight.medium, color: colors.primary },
   countNote: { fontSize: fontSize.base, color: colors.textTertiary, marginTop: -4 },
