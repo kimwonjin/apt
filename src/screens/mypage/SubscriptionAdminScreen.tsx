@@ -213,7 +213,7 @@ export function SubscriptionAdminScreen({ navigation }: Props) {
             </Field>
           )}
 
-          <Field label="주문 시간대">
+          <Field label="주문 마감 시간대">
             <View style={styles.chipRow}>
               {TIME_SLOTS.map((s) => (
                 <Chip

@@ -191,7 +191,7 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
             </Field>
           )}
 
-          <Field label="주문 시간대 — 이를수록 할인율이 높아요">
+          <Field label="주문 마감 시간대 — 이를수록 할인율이 높아요">
             <View style={styles.row}>
               {DEADLINE_OPTIONS.map((o) => (
                 <Chip

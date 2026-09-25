@@ -191,7 +191,7 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
         )}
 
         <View style={styles.section}>
-          <Row label="주문 시간대" value={slotLabel(timeSlot)} />
+          <Row label="주문 마감 시간대" value={slotLabel(timeSlot)} />
           <Row label="로비 픽업 장소" value={groupBuy.pickupPlace ?? '-'} />
           <Row label="수령 예정" value={groupBuy.pickupTime ?? '-'} />
           <Row label="개설자" value={`${groupBuy.creator.name} · ${groupBuy.creator.buildingLabel}`} />
