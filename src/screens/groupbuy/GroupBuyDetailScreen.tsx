@@ -227,8 +227,9 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
   const previewPct = tierPercent(participantCount + cartQty, timeSlot, groupBuy.discountTable);
   const cartTotal = cartItems.reduce((sum, i) => sum + priceAfterDiscount(i.menu.base_price, previewPct) * i.qty, 0);
   const myItemsPct = groupBuy.finalDiscountPercent ?? discountPercent;
-  // 취소는 마감 1시간 전까지만, 개설자는 다른 참여자가 이미 있으면 취소 불가.
-  const canCancel = isOpen && new Date(groupBuy.deadline).getTime() - Date.now() > 60 * 60 * 1000;
+  // 취소는 마감 2시간 전까지만(너무 늦게 빠지면 남은 사람들 할인이 떨어지는 걸
+  // 막기 위한 여유 시간), 개설자는 다른 참여자가 이미 있으면 취소 불가.
+  const canCancel = isOpen && new Date(groupBuy.deadline).getTime() - Date.now() > 2 * 60 * 60 * 1000;
   const creatorBlocked = isMine && participants.length > 1;
 
   return (
@@ -358,7 +359,7 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
           </View>
         ) : joined && !canCancel ? (
           <View style={[styles.primaryCta, styles.primaryCtaDisabled]}>
-            <Text style={styles.primaryCtaText}>마감 1시간 전부터는 취소할 수 없어요</Text>
+            <Text style={styles.primaryCtaText}>마감 2시간 전부터는 취소할 수 없어요</Text>
           </View>
         ) : joined ? (
           <Pressable style={styles.primaryCta} onPress={handleLeave} disabled={busy}>
@@ -396,7 +397,7 @@ function joinErrorMessage(raw: string) {
 
 function leaveErrorMessage(raw: string) {
   if (raw.includes('creator_cannot_cancel_with_participants')) return '다른 참여자가 있어서 지금은 취소할 수 없어요.';
-  if (raw.includes('too_late_to_cancel')) return '마감 1시간 전부터는 취소할 수 없어요.';
+  if (raw.includes('too_late_to_cancel')) return '마감 2시간 전부터는 취소할 수 없어요.';
   return '취소에 실패했어요. 다시 시도해주세요.';
 }
 

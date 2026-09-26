@@ -528,9 +528,10 @@ end;
 $$;
 grant execute on function join_groupbuy_cart(uuid, uuid, jsonb) to authenticated;
 
--- 취소 마감: 공구 마감 1시간 전까지만. 개설자는 본인 말고 다른 참여자가 이미
+-- 취소 마감: 공구 마감 2시간 전까지만(너무 늦게 빠지면 개설자 혼자 남아 할인이
+-- 떨어지는 걸 막기 위한 여유 시간). 개설자는 본인 말고 다른 참여자가 이미
 -- 있으면 취소 불가(공구를 통째로 비우고 나갈 수 없게) — 다른 참여자는 본인
--- 참여만 취소하는 거라 언제든(마감 1시간 전까지) 가능.
+-- 참여만 취소하는 거라 언제든(마감 2시간 전까지) 가능.
 create or replace function leave_groupbuy(gb_id uuid)
 returns void language plpgsql security definer set search_path = public as $$
 declare
@@ -539,7 +540,7 @@ declare
 begin
   select * into gb from groupbuys where id = gb_id;
   if not found then raise exception 'groupbuy_not_found'; end if;
-  if gb.status <> 'open' or gb.deadline <= now() + interval '1 hour' then raise exception 'too_late_to_cancel'; end if;
+  if gb.status <> 'open' or gb.deadline <= now() + interval '2 hours' then raise exception 'too_late_to_cancel'; end if;
   if auth.uid() = gb.creator_id then
     select count(*) into other_count from participations where groupbuy_id = gb_id and user_id <> gb.creator_id;
     if other_count > 0 then raise exception 'creator_cannot_cancel_with_participants'; end if;
