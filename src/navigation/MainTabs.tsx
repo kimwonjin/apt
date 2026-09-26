@@ -56,7 +56,9 @@ export function MainTabs() {
       <Tab.Screen
         name="만들기"
         component={HomeStack}
-        options={{ tabBarButton: () => null }} // 홈 화면의 "+ 공구 만들기" 버튼과 기능이 겹쳐서 숨김(제거는 아님)
+        // 홈 화면의 "+ 공구 만들기" 버튼과 기능이 겹쳐서 숨김(제거는 아님).
+        // tabBarItemStyle까지 display:none을 줘야 남은 탭들이 빈 자리 없이 고르게 재배치됨.
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' } }}
         listeners={({ navigation }) => ({
           tabPress: (e) => {
             e.preventDefault();
@@ -67,6 +69,7 @@ export function MainTabs() {
       <Tab.Screen
         name="만들기2"
         component={HomeStack}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' } }}
         listeners={({ navigation }) => ({
           tabPress: (e) => {
             e.preventDefault();
