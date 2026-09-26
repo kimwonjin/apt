@@ -56,6 +56,7 @@ export function MainTabs() {
       <Tab.Screen
         name="만들기"
         component={HomeStack}
+        options={{ tabBarButton: () => null }} // 홈 화면의 "+ 공구 만들기" 버튼과 기능이 겹쳐서 숨김(제거는 아님)
         listeners={({ navigation }) => ({
           tabPress: (e) => {
             e.preventDefault();
