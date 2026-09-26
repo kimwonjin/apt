@@ -142,8 +142,8 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
       return;
     }
 
-    // 개설자는 자동으로 1번 참여자 (B-4) — 단, 실제 결제 승인엔 등록된 카드가 필요해서
-    // 카드가 없으면 자동 참여는 건너뛰고 상세 화면에서 직접 참여하도록 안내한다.
+    // 개설자는 자동으로 1번 참여자 (B-4). 카드는 지금은 참여를 막지 않음(있으면
+    // 붙이고, 없으면 null — 실제 결제 승인 단계에서 다시 확인해서 처리).
     const { data: pm } = await supabase
       .from('payment_methods')
       .select('id')
@@ -151,9 +151,7 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
       .not('billing_key', 'is', null)
       .limit(1)
       .maybeSingle();
-    if (pm) {
-      await supabase.rpc('join_groupbuy', { gb_id: data.id, pm_id: pm.id, want_qty: myQty });
-    }
+    await supabase.rpc('join_groupbuy', { gb_id: data.id, pm_id: pm?.id ?? null, want_qty: myQty });
 
     setSubmitting(false);
     navigation.replace('GroupBuyDetail', { groupBuyId: data.id });

@@ -150,8 +150,8 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
       return;
     }
 
-    // 개설자는 자동으로 담은 장바구니로 1번 참여자가 됨 — 카드가 없으면 자동 참여는 건너뛰고
-    // 상세 화면에서 직접 참여하도록 안내한다.
+    // 개설자는 자동으로 담은 장바구니로 1번 참여자가 됨. 카드는 지금은 참여를 막지
+    // 않음(있으면 붙이고, 없으면 null — 실제 결제 승인 단계에서 다시 확인해서 처리).
     const { data: pm } = await supabase
       .from('payment_methods')
       .select('id')
@@ -159,10 +159,8 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
       .not('billing_key', 'is', null)
       .limit(1)
       .maybeSingle();
-    if (pm) {
-      const items = cartItems.map((i) => ({ menu_id: i.menu.id, qty: i.qty }));
-      await supabase.rpc('join_groupbuy_cart', { gb_id: data.id, pm_id: pm.id, items });
-    }
+    const items = cartItems.map((i) => ({ menu_id: i.menu.id, qty: i.qty }));
+    await supabase.rpc('join_groupbuy_cart', { gb_id: data.id, pm_id: pm?.id ?? null, items });
 
     setSubmitting(false);
     navigation.replace('GroupBuyDetail', { groupBuyId: data.id });

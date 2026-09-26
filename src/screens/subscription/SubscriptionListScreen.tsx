@@ -1,8 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { Alert } from '../../lib/alert';
+import { useFocusEffect } from '@react-navigation/native';
 import { useAppState } from '../../state/AppStateContext';
 import { supabase } from '../../lib/supabase';
 import { AppHeader } from '../../components/AppHeader';
@@ -28,7 +27,6 @@ interface GroupRow {
 // 탭 D "요일 다이어트 밥이". 파일럿 최소 구현: 빌딩의 구독그룹 목록 + 구독 on/off.
 // 회차별 결제취소(D-3)·모드 선택(D-2)·이력(D-5)은 후속.
 export function SubscriptionListScreen() {
-  const navigation = useNavigation();
   const { buildingId } = useAppState();
   const [rows, setRows] = useState<GroupRow[]>([]);
   const [subscribedIds, setSubscribedIds] = useState<Set<string>>(new Set());
@@ -83,7 +81,8 @@ export function SubscriptionListScreen() {
       refresh();
       return;
     }
-    // 구독도 실제 결제 승인이 필요해서 등록된 카드(billing_key)가 있어야 신청 가능.
+    // 카드는 지금은 구독 신청을 막지 않음(있으면 붙이고, 없으면 null — 실제 결제
+    // 승인 단계에서 다시 확인해서 처리).
     const { data: pm } = await supabase
       .from('payment_methods')
       .select('id')
@@ -91,17 +90,9 @@ export function SubscriptionListScreen() {
       .not('billing_key', 'is', null)
       .limit(1)
       .maybeSingle();
-    if (!pm) {
-      setBusy(null);
-      Alert.alert('카드 등록이 필요해요', '구독하려면 먼저 결제수단(카드)을 등록해주세요.', [
-        { text: '취소', style: 'cancel' },
-        { text: '등록하러 가기', onPress: () => (navigation as any).getParent()?.navigate('내정보', { screen: 'PaymentMethods' }) },
-      ]);
-      return;
-    }
     await supabase
       .from('subscriptions')
-      .upsert({ user_id: user.id, group_id: groupId, payment_method_id: pm.id, active: true }, { onConflict: 'user_id,group_id' });
+      .upsert({ user_id: user.id, group_id: groupId, payment_method_id: pm?.id ?? null, active: true }, { onConflict: 'user_id,group_id' });
     setBusy(null);
     refresh();
   };

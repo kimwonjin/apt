@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Alert } from '../../lib/alert';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { HomeStackParamList } from '../../navigation/types';
@@ -109,8 +108,9 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
   const isMine = myUserId === groupBuy?.creator.id;
   const isOpen = groupBuy?.status === 'open' && new Date(groupBuy.deadline).getTime() > Date.now();
 
-  // 실제 결제(토스) 승인엔 등록된 카드(billing_key)가 있어야 하므로, 없으면 참여를 막고
-  // 결제수단 등록 화면으로 보낸다. 예전 목업 방식처럼 참여 시점에 임시 카드를 만들어주지 않는다.
+  // 카드 등록은 지금은 참여를 막지 않는다(파일럿 초반이라 결제 단계는 나중에 다시 붙임) —
+  // 카드가 있으면 붙여두고, 없으면 payment_method_id null로 참여만 먼저 시킨다.
+  // 실제 결제 승인은 어차피 "주문 요청 관리"에서 나중에 카드 유무를 다시 확인해서 처리한다.
   const ensurePaymentMethod = async () => {
     if (!myUserId) return null;
     const { data } = await supabase
@@ -128,14 +128,6 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
     setBusy(true);
     setActionError(null);
     const pmId = await ensurePaymentMethod();
-    if (!pmId) {
-      setBusy(false);
-      Alert.alert('카드 등록이 필요해요', '참여하려면 먼저 결제수단(카드)을 등록해주세요.', [
-        { text: '취소', style: 'cancel' },
-        { text: '등록하러 가기', onPress: () => (navigation as any).getParent()?.navigate('내정보', { screen: 'PaymentMethods' }) },
-      ]);
-      return;
-    }
     const { error: e } = await supabase.rpc('join_groupbuy', { gb_id: groupBuy.id, pm_id: pmId, want_qty: qty });
     setBusy(false);
     if (e) {
@@ -164,14 +156,6 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
     setBusy(true);
     setActionError(null);
     const pmId = await ensurePaymentMethod();
-    if (!pmId) {
-      setBusy(false);
-      Alert.alert('카드 등록이 필요해요', '참여하려면 먼저 결제수단(카드)을 등록해주세요.', [
-        { text: '취소', style: 'cancel' },
-        { text: '등록하러 가기', onPress: () => (navigation as any).getParent()?.navigate('내정보', { screen: 'PaymentMethods' }) },
-      ]);
-      return;
-    }
     const { error: e } = await supabase.rpc('join_groupbuy_cart', { gb_id: groupBuy.id, pm_id: pmId, items });
     setBusy(false);
     if (e) {
