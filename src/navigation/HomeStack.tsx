@@ -4,6 +4,7 @@ import { HomeStackParamList } from './types';
 import { HomeScreen } from '../screens/home/HomeScreen';
 import { GroupBuyDetailScreen } from '../screens/groupbuy/GroupBuyDetailScreen';
 import { GroupBuyCreateScreen } from '../screens/groupbuy/GroupBuyCreateScreen';
+import { GroupBuyCreateOpenScreen } from '../screens/groupbuy/GroupBuyCreateOpenScreen';
 import { NotificationsScreen } from '../screens/notifications/NotificationsScreen';
 
 const Stack = createNativeStackNavigator<HomeStackParamList>();
@@ -14,6 +15,7 @@ export function HomeStack() {
       <Stack.Screen name="HomeList" component={HomeScreen} />
       <Stack.Screen name="GroupBuyDetail" component={GroupBuyDetailScreen} />
       <Stack.Screen name="GroupBuyCreate" component={GroupBuyCreateScreen} />
+      <Stack.Screen name="GroupBuyCreateOpen" component={GroupBuyCreateOpenScreen} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} />
     </Stack.Navigator>
   );

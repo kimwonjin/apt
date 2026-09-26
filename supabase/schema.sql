@@ -27,6 +27,7 @@ drop table if exists chat_rooms cascade;
 drop table if exists payment_methods cascade;
 drop table if exists participations cascade;
 drop table if exists groupbuys cascade;
+drop table if exists menu_discount_tiers cascade;
 drop table if exists menus cascade;
 drop table if exists restaurants cascade;
 drop table if exists building_memberships cascade;
@@ -35,6 +36,7 @@ drop table if exists buildings cascade;
 
 drop function if exists groupbuy_discount_percent(int, text) cascade;
 drop function if exists groupbuy_discount_percent(int, groupbuy_time_slot) cascade;
+drop function if exists groupbuy_discount_percent(uuid, int, groupbuy_time_slot) cascade;
 drop function if exists sweep_expired_groupbuys() cascade;
 drop function if exists materialize_subscription_runs() cascade;
 drop function if exists join_groupbuy(uuid, uuid, int) cascade;
@@ -56,7 +58,7 @@ drop type if exists groupbuy_time_slot cascade;
 
 create extension if not exists "pgcrypto";
 
--- offpeak: 9~10시 주문(리드타임 김, 오프피크) / peak: 11~12시 주문(피크)
+-- offpeak: 10시 이전 마감(리드타임 김) / peak: 12시 이전 마감. 이를수록 할인율이 높다.
 create type groupbuy_time_slot as enum ('offpeak', 'peak');
 create type groupbuy_type as enum ('delivery', 'install');
 -- open: 진행중 모집 / success: 성사확정(캡처 완료) / failed: 마감실패(최소인원 미달)
@@ -130,17 +132,30 @@ create table menus (
   created_at timestamptz not null default now()
 );
 
+-- 메뉴별 계단식 할인율 매트릭스 (시간대 × 인원 구간). 운영자가 메뉴 등록 시 입력(기획서 7장 표가 기본값).
+-- 구간에 없는 인원수(예: 3~4명)는 groupbuy_discount_percent()가 0%로 폴백.
+create table menu_discount_tiers (
+  id uuid primary key default gen_random_uuid(),
+  menu_id uuid not null references menus(id) on delete cascade,
+  time_slot groupbuy_time_slot not null,
+  min_headcount integer not null,
+  discount_percent integer not null check (discount_percent between 0 and 100),
+  unique (menu_id, time_slot, min_headcount)
+);
+
 create table groupbuys (
   id uuid primary key default gen_random_uuid(),
   creator_id uuid not null references profiles(id) on delete cascade,
   building_id uuid not null references buildings(id) on delete cascade,
   restaurant_id uuid not null references restaurants(id) on delete restrict,
-  menu_id uuid not null references menus(id) on delete restrict,
+  -- 자유참여형(pricing_mode='fixed')은 식당 하나에 여러 메뉴를 담는 장바구니형이라
+  -- 대표 메뉴 하나로 못 못박음 — null 허용. 일반형(menu)은 계속 필수.
+  menu_id uuid references menus(id) on delete restrict,
   subscription_group_id uuid,           -- 구독 회차로 자동 생성된 경우 (아래 FK는 테이블 생성 후 추가)
   type groupbuy_type not null default 'delivery',
   title text not null,
   photo_url text,
-  base_price integer not null,          -- 개설 시점 메뉴 정가 스냅샷
+  base_price integer not null default 0, -- 개설 시점 메뉴 정가 스냅샷(장바구니형은 0 — 참여자별 participation_items로 계산)
   time_slot groupbuy_time_slot not null,
   min_headcount integer not null,       -- 최소 성사 인원 (기본 메뉴값, 개설자가 상향 가능)
   participant_count integer not null default 0,   -- participations 증감에 맞춰 트리거로 갱신
@@ -152,8 +167,14 @@ create table groupbuys (
   pickup_time text,                     -- 수령 예정 시각(표시용 문자열)
   install_dates timestamptz[],
   bumped_at timestamptz,                -- 끌어올리기
+  order_sent_at timestamptz,            -- 운영자가 식당에 주문 요청을 전달한 시각(수동 확인 체크)
+  settled_at timestamptz,               -- 운영자가 이 공구 매출을 식당 계좌로 정산 완료한 시각
+  pricing_mode text not null default 'menu' check (pricing_mode in ('menu', 'fixed')),
+    -- menu: 메뉴별 할인 매트릭스(menu_discount_tiers), 메뉴 하나 고정 / fixed: 자유참여형("만들기2"),
+    -- 고정 인원 구간표 + 참여자마다 다른 메뉴 조합(장바구니) 가능
   created_at timestamptz not null default now(),
-  check (min_headcount >= 1)
+  check (min_headcount >= 1),
+  check (pricing_mode = 'fixed' or menu_id is not null)
 );
 create index groupbuys_building_status_idx on groupbuys (building_id, status, deadline);
 
@@ -172,11 +193,26 @@ create table participations (
 );
 create index participations_groupbuy_idx on participations (groupbuy_id);
 
+-- 자유참여형(장바구니) 전용 — 한 참여자가 담은 메뉴별 항목. qty 합계는 participations.qty와 같다.
+-- name/base_price는 담을 당시 menus 스냅샷(나중에 메뉴가 바뀌어도 주문 내역은 그대로 보이게).
+create table participation_items (
+  id uuid primary key default gen_random_uuid(),
+  participation_id uuid not null references participations(id) on delete cascade,
+  menu_id uuid not null references menus(id) on delete restrict,
+  name text not null,
+  base_price integer not null,
+  qty integer not null check (qty >= 1),
+  created_at timestamptz not null default now()
+);
+create index participation_items_participation_idx on participation_items (participation_id);
+
 create table payment_methods (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(id) on delete cascade,
   label text not null,                  -- "우리카드 1234"
   is_default boolean not null default true,
+  billing_key text,                     -- 토스페이먼츠 빌링키. 실제 결제 승인에 필요(없으면 목업 카드).
+  customer_key text,                    -- 토스 customerKey(=user_id 문자열). 빌링키 발급/승인 시 필요.
   created_at timestamptz not null default now()
 );
 
@@ -297,35 +333,55 @@ create trigger on_auth_user_created
 after insert on auth.users for each row execute function handle_new_user();
 
 -- ── 계단식 할인율 (기획서 7장) — TS: src/lib/discount.ts 와 값 동일해야 함 ──
-create or replace function groupbuy_discount_percent(headcount int, slot groupbuy_time_slot)
+-- 메뉴별 할인 매트릭스(menu_discount_tiers)에서 해당 인원/시간대에 맞는 최고 구간 할인율을 찾는다.
+-- 매트릭스가 없는(아직 안 채운) 메뉴는 0% — 상시가로 노출.
+create or replace function groupbuy_discount_percent(p_menu_id uuid, headcount int, slot groupbuy_time_slot)
+returns int language sql stable as $$
+  select coalesce(
+    (select discount_percent from menu_discount_tiers
+     where menu_id = p_menu_id and time_slot = slot and min_headcount <= headcount
+     order by min_headcount desc
+     limit 1),
+    0
+  );
+$$;
+
+-- "만들기2"(자유참여형) 공구용 고정 계단식 할인율 — 메뉴 매트릭스와 무관하게 인원수만 본다.
+-- 1명 0% · 2~3명 5% · 4~9명 10% · 10~19명 15% · 20명 이상 20%.
+-- src/lib/discount.ts의 FIXED_DISCOUNT_TABLE과 값이 같아야 함.
+create or replace function fixed_tier_discount_percent(headcount int)
 returns int language sql immutable as $$
-  select case slot
-    when 'peak' then case
-      when headcount >= 20 then 12
-      when headcount >= 10 then 8
-      when headcount >= 5  then 5
-      else 0 end
-    when 'offpeak' then case
-      when headcount >= 20 then 20
-      when headcount >= 10 then 15
-      when headcount >= 5  then 10
-      else 0 end
+  select case
+    when headcount >= 20 then 20
+    when headcount >= 10 then 15
+    when headcount >= 4 then 10
+    when headcount >= 2 then 5
+    else 0
   end;
 $$;
 
 -- ── 참여 증감 → participant_count + discount_percent 실시간 갱신 ──
+-- participant_count는 참여자 row 수가 아니라 qty 합계다. 한 사람이 팀원 몫까지
+-- 여러 개(qty)를 대신 주문하는 경우(오프라인으로 모아서 한 번에 신청)를 실제
+-- 인원이 그만큼 모인 것과 동일하게 쳐주기로 함(기획 의도 확인됨) —
+-- "혼자 수량만 늘려 최고 할인 받기"가 아니라 "여러 명 몫을 한 로그인으로 대신 신청".
 create or replace function refresh_groupbuy_stats()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare
   gb_id uuid := coalesce(new.groupbuy_id, old.groupbuy_id);
   cnt int;
   slot groupbuy_time_slot;
+  m_id uuid;
+  mode text;
 begin
-  select count(*) into cnt from participations where groupbuy_id = gb_id;
-  select time_slot into slot from groupbuys where id = gb_id;
+  select coalesce(sum(qty), 0) into cnt from participations where groupbuy_id = gb_id;
+  select time_slot, menu_id, pricing_mode into slot, m_id, mode from groupbuys where id = gb_id;
   update groupbuys
     set participant_count = cnt,
-        discount_percent = groupbuy_discount_percent(cnt, slot)
+        discount_percent = case
+          when mode = 'fixed' then fixed_tier_discount_percent(cnt)
+          else groupbuy_discount_percent(m_id, cnt, slot)
+        end
     where id = gb_id and status = 'open';
   return null;
 end;
@@ -426,13 +482,69 @@ end;
 $$;
 grant execute on function join_groupbuy(uuid, uuid, int) to authenticated;
 
+-- 자유참여형("만들기2") 공구용 — 참여자가 식당의 여러 메뉴를 각자 원하는 수량만큼
+-- 담아서 한 번에 참여한다(장바구니). items: [{"menu_id":"...","qty":2}, ...].
+-- qty 합계가 participations.qty(=인원수 계산의 기준)가 되고, 항목별 스냅샷은
+-- participation_items에 저장한다. 메뉴는 반드시 이 공구의 식당 소속이어야 함(가격 위조 방지 —
+-- 이름/가격은 클라이언트 입력을 안 믿고 여기서 menus 테이블 값으로 다시 조회해 저장).
+create or replace function join_groupbuy_cart(gb_id uuid, pm_id uuid, items jsonb)
+returns participations language plpgsql security definer set search_path = public as $$
+declare
+  gb groupbuys;
+  row participations;
+  item jsonb;
+  m menus;
+  item_qty int;
+  total_qty int := 0;
+begin
+  select * into gb from groupbuys where id = gb_id for update;
+  if not found then raise exception 'groupbuy_not_found'; end if;
+  if gb.status <> 'open' then raise exception 'groupbuy_not_open'; end if;
+  if gb.deadline <= now() then raise exception 'deadline_passed'; end if;
+  if not is_building_member(gb.building_id) then raise exception 'not_building_member'; end if;
+  if items is null or jsonb_array_length(items) = 0 then raise exception 'empty_cart'; end if;
+
+  for item in select * from jsonb_array_elements(items) loop
+    total_qty := total_qty + greatest(coalesce((item->>'qty')::int, 0), 0);
+  end loop;
+  if total_qty < 1 then raise exception 'empty_cart'; end if;
+
+  insert into participations (groupbuy_id, user_id, payment_method_id, qty)
+  values (gb_id, auth.uid(), pm_id, total_qty)
+  returning * into row;
+
+  for item in select * from jsonb_array_elements(items) loop
+    item_qty := coalesce((item->>'qty')::int, 0);
+    if item_qty > 0 then
+      select * into m from menus where id = (item->>'menu_id')::uuid and restaurant_id = gb.restaurant_id and active = true;
+      if not found then raise exception 'invalid_menu_item'; end if;
+      insert into participation_items (participation_id, menu_id, name, base_price, qty)
+      values (row.id, m.id, m.name, m.base_price, item_qty);
+    end if;
+  end loop;
+
+  return row;
+end;
+$$;
+grant execute on function join_groupbuy_cart(uuid, uuid, jsonb) to authenticated;
+
+-- 취소 마감: 공구 마감 2시간 전까지만(너무 늦게 빠지면 개설자 혼자 남아 할인이
+-- 떨어지는 걸 막기 위한 여유 시간). 개설자는 본인 말고 다른 참여자가 이미
+-- 있으면 취소 불가(공구를 통째로 비우고 나갈 수 없게) — 다른 참여자는 본인
+-- 참여만 취소하는 거라 언제든(마감 2시간 전까지) 가능.
 create or replace function leave_groupbuy(gb_id uuid)
 returns void language plpgsql security definer set search_path = public as $$
 declare
   gb groupbuys;
+  other_count int;
 begin
   select * into gb from groupbuys where id = gb_id;
-  if gb.deadline <= now() or gb.status <> 'open' then raise exception 'too_late_to_cancel'; end if;
+  if not found then raise exception 'groupbuy_not_found'; end if;
+  if gb.status <> 'open' or gb.deadline <= now() + interval '2 hours' then raise exception 'too_late_to_cancel'; end if;
+  if auth.uid() = gb.creator_id then
+    select count(*) into other_count from participations where groupbuy_id = gb_id and user_id <> gb.creator_id;
+    if other_count > 0 then raise exception 'creator_cannot_cancel_with_participants'; end if;
+  end if;
   delete from participations where groupbuy_id = gb_id and user_id = auth.uid();
 end;
 $$;
@@ -451,13 +563,14 @@ begin
     select * from groupbuys where status = 'open' and deadline <= now() for update skip locked
   loop
     if gb.participant_count >= gb.min_headcount then
-      final_pct := groupbuy_discount_percent(gb.participant_count, gb.time_slot);
+      final_pct := case
+        when gb.pricing_mode = 'fixed' then fixed_tier_discount_percent(gb.participant_count)
+        else groupbuy_discount_percent(gb.menu_id, gb.participant_count, gb.time_slot)
+      end;
       update groupbuys set status = 'success', final_discount_percent = final_pct where id = gb.id;
-      -- 카드 캡처(목업): 홀드 → 캡처, 금액 확정.
-      update participations
-        set hold_status = 'captured',
-            charged_amount = round(gb.base_price * (100 - final_pct) / 100.0) * qty
-        where groupbuy_id = gb.id and hold_status = 'held';
+      -- 카드 캡처는 더 이상 여기서 자동으로 안 함(토스 실연동) — 운영자가
+      -- "주문 요청 관리" 화면에서 실제 결제 승인 API를 호출해 처리한다.
+      -- 참여자는 성사 시점엔 hold_status='held' 그대로 유지.
       insert into notifications (user_id, type, payload)
         select user_id, 'groupbuy_success',
                jsonb_build_object('title', '공구가 성사됐어요!', 'body', gb.title, 'groupbuy_id', gb.id)
@@ -586,8 +699,11 @@ alter table profiles enable row level security;
 alter table building_memberships enable row level security;
 alter table restaurants enable row level security;
 alter table menus enable row level security;
-alter table groupbuys disable row level security;   -- MVP: 인증 사용자만 접근하므로 충분
+-- disable에 의존하면 Supabase가 신규 프로젝트에 RLS를 강제로 켜버려서(022번 profiles와 동일 증상)
+-- insert가 막힐 수 있다. 명시적으로 enable + 정책을 둬서 의도를 고정한다.
+alter table groupbuys enable row level security;
 alter table participations enable row level security;
+alter table participation_items enable row level security;
 alter table payment_methods enable row level security;
 alter table chat_rooms enable row level security;
 alter table chat_participants enable row level security;
@@ -618,6 +734,14 @@ create policy "restaurants readable by authenticated" on restaurants for select 
 create policy "admins manage restaurants" on restaurants for all to authenticated using (is_admin()) with check (is_admin());
 create policy "menus readable by authenticated" on menus for select to authenticated using (true);
 create policy "admins manage menus" on menus for all to authenticated using (is_admin()) with check (is_admin());
+create policy "discount tiers readable by authenticated" on menu_discount_tiers for select to authenticated using (true);
+create policy "admins manage discount tiers" on menu_discount_tiers for all to authenticated using (is_admin()) with check (is_admin());
+
+-- 공구는 인증 사용자면 누구나 개설 가능(부록 "아무나 개설"), 조회는 building_id로 클라에서 필터링.
+create policy "groupbuys readable by authenticated" on groupbuys for select to authenticated using (true);
+create policy "authenticated users create groupbuys" on groupbuys for insert to authenticated with check (creator_id = auth.uid());
+-- 운영자가 "주문서 전달 완료" 체크(order_sent_at)를 직접 갱신할 수 있어야 함.
+create policy "admins update groupbuys" on groupbuys for update to authenticated using (is_admin()) with check (is_admin());
 
 -- participations: 본인 것만 직접 관리(참여/취소는 RPC 경유), 개설자는 자기 공구 명단 조회 가능
 create policy "users view own participation" on participations for select to authenticated using (user_id = auth.uid());
@@ -625,9 +749,24 @@ create policy "creators view participations of their groupbuys" on participation
   using (exists (select 1 from groupbuys g where g.id = participations.groupbuy_id and g.creator_id = auth.uid()));
 create policy "users update own participation" on participations for update to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());   -- 픽업 수령 체크 등
+-- 운영자가 "주문 요청 관리"에서 전체 참여자를 보고 실제 결제(hold_status/charged_amount)를 처리해야 함.
+create policy "admins view all participations" on participations for select to authenticated using (is_admin());
+create policy "admins update participations" on participations for update to authenticated using (is_admin()) with check (is_admin());
+
+-- participation_items: 쓰기는 join_groupbuy_cart(security definer)로만, 조회는 본인/개설자/운영자.
+create policy "users view own participation items" on participation_items for select to authenticated
+  using (exists (select 1 from participations p where p.id = participation_items.participation_id and p.user_id = auth.uid()));
+create policy "creators view participation items of their groupbuys" on participation_items for select to authenticated
+  using (exists (
+    select 1 from participations p join groupbuys g on g.id = p.groupbuy_id
+    where p.id = participation_items.participation_id and g.creator_id = auth.uid()
+  ));
+create policy "admins view all participation items" on participation_items for select to authenticated using (is_admin());
 
 create policy "users manage own payment methods" on payment_methods for all to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
+-- 운영자가 결제 실행 시 참여자의 billing_key/customer_key를 조회해야 함(조회만, 수정은 불가).
+create policy "admins view all payment methods" on payment_methods for select to authenticated using (is_admin());
 
 create policy "participants view their rooms" on chat_rooms for select to authenticated using (is_room_participant(chat_rooms.id));
 create policy "participants view participant rows" on chat_participants for select to authenticated using (is_room_participant(chat_participants.room_id));

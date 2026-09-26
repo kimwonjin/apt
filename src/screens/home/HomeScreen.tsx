@@ -18,7 +18,7 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'HomeList'>;
 export function HomeScreen({ navigation }: Props) {
   const { buildingName } = useAppState();
   const { groupBuys, loading, error, refresh } = useGroupBuys();
-  const [filter, setFilter] = useState<Filter>('전체');
+  const [filter, setFilter] = useState<Filter>('진행중');
   const [query, setQuery] = useState('');
 
   useFocusEffect(
