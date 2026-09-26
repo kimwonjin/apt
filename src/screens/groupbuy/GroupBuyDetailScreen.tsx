@@ -291,14 +291,14 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
           </Text>
         )}
 
-        {!isMine && isOpen && !joined && !isCart && (
+        {isOpen && !joined && !isCart && (
           <View style={styles.qtyRow}>
             <Text style={styles.sectionLabel}>수량</Text>
             <QtyStepper value={qty} onChange={setQty} max={MAX_QTY} />
           </View>
         )}
 
-        {!isMine && isOpen && !joined && isCart && (
+        {isOpen && !joined && isCart && (
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>메뉴 담기 — 원하는 메뉴를 각각 담을 수 있어요</Text>
             {restaurantMenus.length === 0 ? (
@@ -361,7 +361,7 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
             <Text style={styles.chatBtnText}>💬</Text>
           </Pressable>
         )}
-        {isMine ? (
+        {isMine && joined ? (
           <View style={[styles.primaryCta, styles.primaryCtaDisabled]}>
             <Text style={styles.primaryCtaText}>내가 만든 공구예요</Text>
           </View>
