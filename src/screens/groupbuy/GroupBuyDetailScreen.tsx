@@ -10,6 +10,7 @@ import { supabase } from '../../lib/supabase';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
 import { formatDate, formatDday, formatPrice } from '../../lib/format';
 import { nextTier, priceAfterDiscount, TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
+import { QtyStepper } from '../../components/QtyStepper';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'GroupBuyDetail'>;
 
@@ -201,25 +202,7 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
         {!isMine && isOpen && !joined && (
           <View style={styles.qtyRow}>
             <Text style={styles.sectionLabel}>수량</Text>
-            <View style={styles.qtyStepper}>
-              <Pressable
-                style={[styles.qtyBtn, qty <= 1 && styles.qtyBtnDisabled]}
-                onPress={() => setQty((q) => Math.max(1, q - 1))}
-                disabled={qty <= 1}
-                hitSlop={8}
-              >
-                <Text style={styles.qtyBtnText}>−</Text>
-              </Pressable>
-              <Text style={styles.qtyValue}>{qty}개</Text>
-              <Pressable
-                style={[styles.qtyBtn, qty >= MAX_QTY && styles.qtyBtnDisabled]}
-                onPress={() => setQty((q) => Math.min(MAX_QTY, q + 1))}
-                disabled={qty >= MAX_QTY}
-                hitSlop={8}
-              >
-                <Text style={styles.qtyBtnText}>+</Text>
-              </Pressable>
-            </View>
+            <QtyStepper value={qty} onChange={setQty} max={MAX_QTY} />
           </View>
         )}
 
@@ -323,18 +306,6 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     marginTop: spacing.xs,
   },
-  qtyStepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  qtyBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.pill,
-    backgroundColor: colors.fillSubtle,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  qtyBtnDisabled: { opacity: 0.4 },
-  qtyBtnText: { fontSize: fontSize.xl, fontWeight: fontWeight.bold, color: colors.textPrimary },
-  qtyValue: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold, color: colors.textPrimary, minWidth: 36, textAlign: 'center' },
   section: { gap: spacing.xs, backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.md, marginTop: spacing.xs },
   sectionLabel: { fontSize: fontSize.md, color: colors.textSecondary, fontWeight: fontWeight.medium },
   row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, gap: spacing.sm },

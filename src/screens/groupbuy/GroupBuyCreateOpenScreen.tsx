@@ -8,6 +8,7 @@ import { supabase } from '../../lib/supabase';
 import { formatPrice } from '../../lib/format';
 import { chargeAmount, discountPercent, FIXED_DISCOUNT_TABLE, TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
+import { QtyStepper } from '../../components/QtyStepper';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'GroupBuyCreateOpen'>;
 
@@ -43,6 +44,7 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuRow | null>(null);
   const [deadlineHour, setDeadlineHour] = useState<number | null>(null);
+  const [myQty, setMyQty] = useState(1);
   const [pickupPlace, setPickupPlace] = useState('1층 로비');
   const [pickupTime, setPickupTime] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -138,7 +140,7 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
       .limit(1)
       .maybeSingle();
     if (pm) {
-      await supabase.rpc('join_groupbuy', { gb_id: data.id, pm_id: pm.id, want_qty: 1 });
+      await supabase.rpc('join_groupbuy', { gb_id: data.id, pm_id: pm.id, want_qty: myQty });
     }
 
     setSubmitting(false);
@@ -221,6 +223,10 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
               placeholder="12:30경"
               placeholderTextColor={colors.textDisabled}
             />
+          </Field>
+
+          <Field label="내 주문 수량 — 개설자도 몇 개 주문할지 정해요">
+            <QtyStepper value={myQty} onChange={setMyQty} />
           </Field>
 
           <View style={styles.previewBox}>
