@@ -211,6 +211,29 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
                   ))}
                 </View>
               )}
+
+              {cartItems.length > 0 && (
+                <View style={styles.cartBox}>
+                  <Text style={styles.previewTitle}>담은 메뉴</Text>
+                  <View style={styles.previewList}>
+                    {cartItems.map((i) => (
+                      <View key={i.menu.id} style={styles.previewRow}>
+                        <Text style={styles.previewLabel}>
+                          {i.menu.name} × {i.qty}개
+                        </Text>
+                        <Text style={styles.previewValue}>{formatPrice(priceAfterDiscount(i.menu.base_price, currentPct) * i.qty)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  <View style={styles.totalRow}>
+                    <Text style={styles.totalLabel}>
+                      합계 ({currentPct}%↓)
+                      {totalOriginal !== totalAfterDiscount && <Text style={styles.totalOriginal}> {formatPrice(totalOriginal)}</Text>}
+                    </Text>
+                    <Text style={styles.totalValue}>{formatPrice(totalAfterDiscount)}</Text>
+                  </View>
+                </View>
+              )}
             </Field>
           )}
 
@@ -273,30 +296,7 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
               })}
             </View>
 
-            {cartItems.length > 0 ? (
-              <>
-                <Text style={[styles.previewTitle, { marginTop: spacing.sm }]}>담은 메뉴</Text>
-                <View style={styles.previewList}>
-                  {cartItems.map((i) => (
-                    <View key={i.menu.id} style={styles.previewRow}>
-                      <Text style={styles.previewLabel}>
-                        {i.menu.name} × {i.qty}개
-                      </Text>
-                      <Text style={styles.previewValue}>{formatPrice(priceAfterDiscount(i.menu.base_price, currentPct) * i.qty)}</Text>
-                    </View>
-                  ))}
-                </View>
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>
-                    합계 ({currentPct}%↓)
-                    {totalOriginal !== totalAfterDiscount && <Text style={styles.totalOriginal}> {formatPrice(totalOriginal)}</Text>}
-                  </Text>
-                  <Text style={styles.totalValue}>{formatPrice(totalAfterDiscount)}</Text>
-                </View>
-              </>
-            ) : (
-              <Text style={styles.note}>메뉴를 담으면 예상 가격이 보여요.</Text>
-            )}
+            {cartItems.length === 0 && <Text style={styles.note}>메뉴를 담으면 예상 가격이 보여요.</Text>}
           </View>
 
           {errorMsg && <Text style={styles.errorText}>{errorMsg}</Text>}
@@ -385,6 +385,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   menuList: { gap: spacing.xs },
+  cartBox: { backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.md, gap: spacing.xs, marginTop: spacing.sm },
   menuRow: {
     flexDirection: 'row',
     alignItems: 'center',
