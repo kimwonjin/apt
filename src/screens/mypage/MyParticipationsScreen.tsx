@@ -11,11 +11,18 @@ import { priceAfterDiscount } from '../../lib/discount';
 
 type Props = NativeStackScreenProps<MyPageStackParamList, 'MyParticipations'>;
 
+interface ItemRow {
+  name: string;
+  base_price: number;
+  qty: number;
+}
 interface Row {
   id: string;
+  qty: number;
   holdStatus: string;
   chargedAmount: number | null;
   pickedUp: boolean;
+  items: ItemRow[];
   groupbuy: {
     id: string;
     title: string;
@@ -48,15 +55,19 @@ export function MyParticipationsScreen({ navigation }: Props) {
     }
     const { data } = await supabase
       .from('participations')
-      .select('id, hold_status, charged_amount, picked_up, groupbuys(id, title, base_price, status, discount_percent, final_discount_percent)')
+      .select(
+        'id, qty, hold_status, charged_amount, picked_up, participation_items(name, base_price, qty), groupbuys(id, title, base_price, status, discount_percent, final_discount_percent)'
+      )
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
     setRows(
       (data ?? []).map((p: any) => ({
         id: p.id,
+        qty: p.qty,
         holdStatus: p.hold_status,
         chargedAmount: p.charged_amount,
         pickedUp: p.picked_up,
+        items: p.participation_items ?? [],
         groupbuy: p.groupbuys,
       }))
     );
@@ -99,9 +110,15 @@ export function MyParticipationsScreen({ navigation }: Props) {
           contentContainerStyle={styles.listContent}
           renderItem={({ item }) => {
             const gb = item.groupbuy;
+            const pct = gb ? gb.final_discount_percent ?? gb.discount_percent : 0;
             const amount =
               item.chargedAmount ??
-              (gb ? priceAfterDiscount(gb.base_price, gb.final_discount_percent ?? gb.discount_percent) : 0);
+              (item.items.length > 0
+                ? item.items.reduce((sum, i) => sum + priceAfterDiscount(i.base_price, pct) * i.qty, 0)
+                : gb
+                  ? priceAfterDiscount(gb.base_price, pct) * item.qty
+                  : 0);
+            const menuLine = item.items.length > 0 ? item.items.map((i) => `${i.name} ×${i.qty}`).join(', ') : null;
             return (
               <Pressable
                 style={styles.card}
@@ -110,6 +127,7 @@ export function MyParticipationsScreen({ navigation }: Props) {
                 }
               >
                 <Text style={styles.title}>{gb?.title ?? '(삭제된 공구)'}</Text>
+                {menuLine && <Text style={styles.sub}>{menuLine}</Text>}
                 <Text style={styles.sub}>{formatPrice(amount)}</Text>
                 <Text style={styles.status}>
                   {HOLD_LABEL[item.holdStatus] ?? item.holdStatus} · {item.pickedUp ? '수령 완료' : '수령 전'}

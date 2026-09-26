@@ -6,9 +6,8 @@ import { HomeStackParamList } from '../../navigation/types';
 import { useAppState } from '../../state/AppStateContext';
 import { supabase } from '../../lib/supabase';
 import { formatPrice } from '../../lib/format';
-import { chargeAmount, discountPercent, FIXED_DISCOUNT_TABLE, TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
+import { discountPercent, FIXED_DISCOUNT_TABLE, priceAfterDiscount, TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
-import { QtyStepper } from '../../components/QtyStepper';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'GroupBuyCreateOpen'>;
 
@@ -37,14 +36,14 @@ const MIN_HEADCOUNT = 2;
 // "만들기2" — 공구대장이 인원을 미리 모아오는 게 아니라 공구만 열어두고 건물 사람들이
 // 자유롭게 참여하는 방식(자유참여형). 메뉴별 할인 매트릭스 대신 인원수만 보는 고정
 // 계단식 할인율(FIXED_DISCOUNT_TABLE)을 쓴다 — pricing_mode: 'fixed'로 표시.
+// 한 식당 안에서 메뉴를 여러 개 담아("담기") 장바구니처럼 개설할 수 있다(연어 1개+치킨 2개 등).
 export function GroupBuyCreateOpenScreen({ navigation }: Props) {
   const { buildingId } = useAppState();
   const [restaurants, setRestaurants] = useState<RestaurantRow[]>([]);
   const [menus, setMenus] = useState<MenuRow[]>([]);
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
-  const [menu, setMenu] = useState<MenuRow | null>(null);
+  const [cart, setCart] = useState<Record<string, number>>({});
   const [deadlineHour, setDeadlineHour] = useState<number | null>(null);
-  const [myQty, setMyQty] = useState(1);
   const [pickupPlace, setPickupPlace] = useState('1층 로비');
   const [pickupTime, setPickupTime] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -64,11 +63,11 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
   }, []);
 
   useEffect(() => {
+    setCart({});
     if (!restaurantId) {
       setMenus([]);
       return;
     }
-    setMenu(null);
     supabase
       .from('menus')
       .select('id, name, base_price, min_headcount, photo_url')
@@ -77,6 +76,15 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
       .order('name')
       .then(({ data }) => setMenus(data ?? []));
   }, [restaurantId]);
+
+  const setQty = (menuId: string, qty: number) => {
+    setCart((prev) => {
+      const next = { ...prev };
+      if (qty <= 0) delete next[menuId];
+      else next[menuId] = qty;
+      return next;
+    });
+  };
 
   // 오늘 그 시각이 이미 지났으면(또는 30분 미만 남았으면) 내일 같은 시각으로 넘긴다.
   const deadline = useMemo(() => {
@@ -90,10 +98,19 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
   const selectedOption = DEADLINE_OPTIONS.find((o) => o.hour === deadlineHour) ?? null;
   const slot: TimeSlot = selectedOption?.slot ?? 'peak';
 
-  const isValid = !!buildingId && !!menu && deadline !== null && deadline.getTime() > Date.now() + 30 * 60 * 1000;
+  const cartItems = useMemo(
+    () => menus.filter((m) => (cart[m.id] ?? 0) > 0).map((m) => ({ menu: m, qty: cart[m.id] })),
+    [menus, cart]
+  );
+  const totalQty = cartItems.reduce((sum, i) => sum + i.qty, 0);
+  const currentPct = discountPercent(totalQty, slot, FIXED_DISCOUNT_TABLE);
+  const totalOriginal = cartItems.reduce((sum, i) => sum + i.menu.base_price * i.qty, 0);
+  const totalAfterDiscount = cartItems.reduce((sum, i) => sum + priceAfterDiscount(i.menu.base_price, currentPct) * i.qty, 0);
+
+  const isValid = !!buildingId && cartItems.length > 0 && deadline !== null && deadline.getTime() > Date.now() + 30 * 60 * 1000;
 
   const handleSubmit = async () => {
-    if (!isValid || !menu || !deadline || !buildingId) return;
+    if (!isValid || !deadline || !buildingId || !restaurantId) return;
     setSubmitting(true);
     setErrorMsg(null);
     const {
@@ -105,16 +122,18 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
       return;
     }
 
+    const restaurantName = restaurants.find((r) => r.id === restaurantId)?.name ?? '식당';
+
     const { data, error } = await supabase
       .from('groupbuys')
       .insert({
         creator_id: user.id,
         building_id: buildingId,
         restaurant_id: restaurantId,
-        menu_id: menu.id,
-        title: menu.name,
-        photo_url: menu.photo_url,
-        base_price: menu.base_price,
+        menu_id: null,
+        title: `${restaurantName} 자유주문`,
+        photo_url: cartItems[0]?.menu.photo_url ?? null,
+        base_price: 0,
         time_slot: slot,
         min_headcount: MIN_HEADCOUNT,
         pricing_mode: 'fixed',
@@ -131,7 +150,8 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
       return;
     }
 
-    // 개설자는 자동으로 1번 참여자 — 카드가 없으면 자동 참여는 건너뛰고 상세 화면에서 직접 참여.
+    // 개설자는 자동으로 담은 장바구니로 1번 참여자가 됨 — 카드가 없으면 자동 참여는 건너뛰고
+    // 상세 화면에서 직접 참여하도록 안내한다.
     const { data: pm } = await supabase
       .from('payment_methods')
       .select('id')
@@ -140,7 +160,8 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
       .limit(1)
       .maybeSingle();
     if (pm) {
-      await supabase.rpc('join_groupbuy', { gb_id: data.id, pm_id: pm.id, want_qty: myQty });
+      const items = cartItems.map((i) => ({ menu_id: i.menu.id, qty: i.qty }));
+      await supabase.rpc('join_groupbuy_cart', { gb_id: data.id, pm_id: pm.id, items });
     }
 
     setSubmitting(false);
@@ -180,13 +201,13 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
           </Field>
 
           {restaurantId && (
-            <Field label="메뉴">
+            <Field label="메뉴 담기 — 원하는 메뉴를 각각 담을 수 있어요">
               {menus.length === 0 ? (
                 <Text style={styles.note}>이 식당에 등록된 메뉴가 없어요.</Text>
               ) : (
-                <View style={styles.row}>
+                <View style={styles.menuList}>
                   {menus.map((m) => (
-                    <Chip key={m.id} label={`${m.name} ${formatPrice(m.base_price)}`} active={menu?.id === m.id} onPress={() => setMenu(m)} />
+                    <MenuCartRow key={m.id} menu={m} qty={cart[m.id] ?? 0} onChange={(q) => setQty(m.id, q)} />
                   ))}
                 </View>
               )}
@@ -225,22 +246,19 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
             />
           </Field>
 
-          <Field label="내 주문 수량 — 개설자도 몇 개 주문할지 정해요">
-            <QtyStepper value={myQty} onChange={setMyQty} />
-          </Field>
-
           <View style={styles.previewBox}>
             <View style={styles.countRow}>
               <Text style={styles.countLabel}>현재 참여 인원</Text>
               <Text style={styles.countValue}>
-                1<Text style={styles.countUnit}>명</Text>
+                {totalQty}
+                <Text style={styles.countUnit}>명</Text>
               </Text>
             </View>
-            <Text style={styles.countNote}>개설자 자동 참여 · 최소 {MIN_HEADCOUNT}명 모이면 성사돼요</Text>
+            <Text style={styles.countNote}>담은 수량 합계 · 최소 {MIN_HEADCOUNT}명 모이면 성사돼요</Text>
 
             <View style={styles.tierTrack}>
               {PREVIEW_TIERS.map((n, i) => {
-                const reached = n <= 1;
+                const reached = n <= totalQty;
                 return (
                   <React.Fragment key={n}>
                     {i > 0 && <View style={[styles.tierLine, reached && styles.tierLineActive]} />}
@@ -255,22 +273,29 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
               })}
             </View>
 
-            {menu ? (
-              <View style={styles.previewList}>
-                {PREVIEW_TIERS.map((n) => (
-                  <View key={n} style={[styles.previewRow, n === 1 && styles.previewRowActive]}>
-                    <Text style={styles.previewLabel}>
-                      {n}명{n === 1 ? ' (최소 미만)' : ''}
-                    </Text>
-                    <Text style={styles.previewValue}>
-                      {formatPrice(chargeAmount(menu.base_price, n, slot, FIXED_DISCOUNT_TABLE))}
-                      <Text style={styles.previewPct}> ({discountPercent(n, slot, FIXED_DISCOUNT_TABLE)}%↓)</Text>
-                    </Text>
-                  </View>
-                ))}
-              </View>
+            {cartItems.length > 0 ? (
+              <>
+                <Text style={[styles.previewTitle, { marginTop: spacing.sm }]}>담은 메뉴</Text>
+                <View style={styles.previewList}>
+                  {cartItems.map((i) => (
+                    <View key={i.menu.id} style={styles.previewRow}>
+                      <Text style={styles.previewLabel}>
+                        {i.menu.name} × {i.qty}개
+                      </Text>
+                      <Text style={styles.previewValue}>{formatPrice(priceAfterDiscount(i.menu.base_price, currentPct) * i.qty)}</Text>
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLabel}>
+                    합계 ({currentPct}%↓)
+                    {totalOriginal !== totalAfterDiscount && <Text style={styles.totalOriginal}> {formatPrice(totalOriginal)}</Text>}
+                  </Text>
+                  <Text style={styles.totalValue}>{formatPrice(totalAfterDiscount)}</Text>
+                </View>
+              </>
             ) : (
-              <Text style={styles.note}>메뉴를 고르면 예상 가격이 보여요.</Text>
+              <Text style={styles.note}>메뉴를 담으면 예상 가격이 보여요.</Text>
             )}
           </View>
 
@@ -280,10 +305,38 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
 
       <View style={styles.ctaBar}>
         <Pressable style={[styles.cta, (!isValid || submitting) && styles.ctaDisabled]} disabled={!isValid || submitting} onPress={handleSubmit}>
-          <Text style={styles.ctaText}>{submitting ? '개설 중...' : '이 조건으로 공구 만들기'}</Text>
+          <Text style={styles.ctaText}>{submitting ? '개설 중...' : '담은 대로 공구 만들기'}</Text>
         </Pressable>
       </View>
     </SafeAreaView>
+  );
+}
+
+function MenuCartRow({ menu, qty, onChange }: { menu: MenuRow; qty: number; onChange: (qty: number) => void }) {
+  return (
+    <View style={styles.menuRow}>
+      <View style={styles.menuInfo}>
+        <Text style={styles.menuName} numberOfLines={1}>
+          {menu.name}
+        </Text>
+        <Text style={styles.menuPrice}>{formatPrice(menu.base_price)}</Text>
+      </View>
+      {qty > 0 ? (
+        <View style={styles.menuStepper}>
+          <Pressable style={styles.stepBtn} onPress={() => onChange(qty - 1)} hitSlop={8}>
+            <Text style={styles.stepBtnText}>−</Text>
+          </Pressable>
+          <Text style={styles.stepValue}>{qty}개</Text>
+          <Pressable style={styles.stepBtn} onPress={() => onChange(qty + 1)} hitSlop={8}>
+            <Text style={styles.stepBtnText}>+</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable style={styles.addBtn} onPress={() => onChange(1)}>
+          <Text style={styles.addBtnText}>담기</Text>
+        </Pressable>
+      )}
+    </View>
   );
 }
 
@@ -331,6 +384,32 @@ const styles = StyleSheet.create({
     fontSize: fontSize.lg,
     color: colors.textPrimary,
   },
+  menuList: { gap: spacing.xs },
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  menuInfo: { flex: 1, marginRight: spacing.sm },
+  menuName: { fontSize: fontSize.md, fontWeight: fontWeight.medium, color: colors.textPrimary },
+  menuPrice: { fontSize: fontSize.base, color: colors.textSecondary, marginTop: 1 },
+  addBtn: { backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 8 },
+  addBtnText: { color: colors.white, fontSize: fontSize.base, fontWeight: fontWeight.semibold },
+  menuStepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  stepBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.pill,
+    backgroundColor: colors.fillSubtle,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepBtnText: { fontSize: fontSize.lg, fontWeight: fontWeight.bold, color: colors.textPrimary },
+  stepValue: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary, minWidth: 32, textAlign: 'center' },
   previewBox: { backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.md, gap: spacing.xs },
   countRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
   countLabel: { fontSize: fontSize.titleLg, fontWeight: fontWeight.bold, color: colors.textPrimary },
@@ -353,12 +432,23 @@ const styles = StyleSheet.create({
   tierPct: { fontSize: 10, color: colors.textTertiary, fontWeight: fontWeight.medium },
   tierLine: { flex: 1, height: 2, backgroundColor: colors.divider, marginTop: 13, marginHorizontal: -2 },
   tierLineActive: { backgroundColor: colors.primary },
-  previewList: { marginTop: spacing.sm, gap: 4 },
+  previewTitle: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary, marginBottom: 2 },
+  previewList: { marginTop: spacing.xs, gap: 4 },
   previewRow: { flexDirection: 'row', justifyContent: 'space-between', borderRadius: radius.sm, paddingHorizontal: 6, paddingVertical: 3 },
-  previewRowActive: { backgroundColor: colors.fillSubtle },
   previewLabel: { fontSize: fontSize.md, color: colors.textSecondary },
   previewValue: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.primary },
-  previewPct: { fontSize: fontSize.base, color: colors.danger, fontWeight: fontWeight.medium },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginTop: spacing.xs,
+    paddingTop: spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+  totalLabel: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  totalOriginal: { fontSize: fontSize.base, color: colors.textDisabled, textDecorationLine: 'line-through', fontWeight: fontWeight.medium },
+  totalValue: { fontSize: fontSize.xxl, fontWeight: fontWeight.heavy, color: colors.primary },
   errorText: { color: colors.danger, fontSize: fontSize.md },
   ctaBar: { paddingHorizontal: screenPadding, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.divider, backgroundColor: colors.card },
   cta: { height: minTouchSize, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },

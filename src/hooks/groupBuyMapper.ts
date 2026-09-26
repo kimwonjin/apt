@@ -11,7 +11,7 @@ export interface GroupBuyRow {
   id: string;
   creator_id: string;
   restaurant_id: string;
-  menu_id: string;
+  menu_id: string | null;
   title: string;
   photo_url: string | null;
   base_price: number;
@@ -68,7 +68,7 @@ export async function attachCreatorBadges(rows: GroupBuyRow[]): Promise<GroupBuy
         category: r.restaurants?.category ?? undefined,
         rating: r.restaurants?.rating ?? 0,
       },
-      menuId: r.menu_id,
+      menuId: r.menu_id ?? undefined,
       basePrice: r.base_price,
       timeSlot: r.time_slot,
       minHeadcount: r.min_headcount,

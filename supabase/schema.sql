@@ -148,12 +148,14 @@ create table groupbuys (
   creator_id uuid not null references profiles(id) on delete cascade,
   building_id uuid not null references buildings(id) on delete cascade,
   restaurant_id uuid not null references restaurants(id) on delete restrict,
-  menu_id uuid not null references menus(id) on delete restrict,
+  -- 자유참여형(pricing_mode='fixed')은 식당 하나에 여러 메뉴를 담는 장바구니형이라
+  -- 대표 메뉴 하나로 못 못박음 — null 허용. 일반형(menu)은 계속 필수.
+  menu_id uuid references menus(id) on delete restrict,
   subscription_group_id uuid,           -- 구독 회차로 자동 생성된 경우 (아래 FK는 테이블 생성 후 추가)
   type groupbuy_type not null default 'delivery',
   title text not null,
   photo_url text,
-  base_price integer not null,          -- 개설 시점 메뉴 정가 스냅샷
+  base_price integer not null default 0, -- 개설 시점 메뉴 정가 스냅샷(장바구니형은 0 — 참여자별 participation_items로 계산)
   time_slot groupbuy_time_slot not null,
   min_headcount integer not null,       -- 최소 성사 인원 (기본 메뉴값, 개설자가 상향 가능)
   participant_count integer not null default 0,   -- participations 증감에 맞춰 트리거로 갱신
@@ -168,9 +170,11 @@ create table groupbuys (
   order_sent_at timestamptz,            -- 운영자가 식당에 주문 요청을 전달한 시각(수동 확인 체크)
   settled_at timestamptz,               -- 운영자가 이 공구 매출을 식당 계좌로 정산 완료한 시각
   pricing_mode text not null default 'menu' check (pricing_mode in ('menu', 'fixed')),
-    -- menu: 메뉴별 할인 매트릭스(menu_discount_tiers) / fixed: 자유참여형("만들기2") 고정 인원 구간표
+    -- menu: 메뉴별 할인 매트릭스(menu_discount_tiers), 메뉴 하나 고정 / fixed: 자유참여형("만들기2"),
+    -- 고정 인원 구간표 + 참여자마다 다른 메뉴 조합(장바구니) 가능
   created_at timestamptz not null default now(),
-  check (min_headcount >= 1)
+  check (min_headcount >= 1),
+  check (pricing_mode = 'fixed' or menu_id is not null)
 );
 create index groupbuys_building_status_idx on groupbuys (building_id, status, deadline);
 
@@ -188,6 +192,19 @@ create table participations (
   unique (groupbuy_id, user_id)
 );
 create index participations_groupbuy_idx on participations (groupbuy_id);
+
+-- 자유참여형(장바구니) 전용 — 한 참여자가 담은 메뉴별 항목. qty 합계는 participations.qty와 같다.
+-- name/base_price는 담을 당시 menus 스냅샷(나중에 메뉴가 바뀌어도 주문 내역은 그대로 보이게).
+create table participation_items (
+  id uuid primary key default gen_random_uuid(),
+  participation_id uuid not null references participations(id) on delete cascade,
+  menu_id uuid not null references menus(id) on delete restrict,
+  name text not null,
+  base_price integer not null,
+  qty integer not null check (qty >= 1),
+  created_at timestamptz not null default now()
+);
+create index participation_items_participation_idx on participation_items (participation_id);
 
 create table payment_methods (
   id uuid primary key default gen_random_uuid(),
@@ -465,6 +482,52 @@ end;
 $$;
 grant execute on function join_groupbuy(uuid, uuid, int) to authenticated;
 
+-- 자유참여형("만들기2") 공구용 — 참여자가 식당의 여러 메뉴를 각자 원하는 수량만큼
+-- 담아서 한 번에 참여한다(장바구니). items: [{"menu_id":"...","qty":2}, ...].
+-- qty 합계가 participations.qty(=인원수 계산의 기준)가 되고, 항목별 스냅샷은
+-- participation_items에 저장한다. 메뉴는 반드시 이 공구의 식당 소속이어야 함(가격 위조 방지 —
+-- 이름/가격은 클라이언트 입력을 안 믿고 여기서 menus 테이블 값으로 다시 조회해 저장).
+create or replace function join_groupbuy_cart(gb_id uuid, pm_id uuid, items jsonb)
+returns participations language plpgsql security definer set search_path = public as $$
+declare
+  gb groupbuys;
+  row participations;
+  item jsonb;
+  m menus;
+  item_qty int;
+  total_qty int := 0;
+begin
+  select * into gb from groupbuys where id = gb_id for update;
+  if not found then raise exception 'groupbuy_not_found'; end if;
+  if gb.status <> 'open' then raise exception 'groupbuy_not_open'; end if;
+  if gb.deadline <= now() then raise exception 'deadline_passed'; end if;
+  if not is_building_member(gb.building_id) then raise exception 'not_building_member'; end if;
+  if items is null or jsonb_array_length(items) = 0 then raise exception 'empty_cart'; end if;
+
+  for item in select * from jsonb_array_elements(items) loop
+    total_qty := total_qty + greatest(coalesce((item->>'qty')::int, 0), 0);
+  end loop;
+  if total_qty < 1 then raise exception 'empty_cart'; end if;
+
+  insert into participations (groupbuy_id, user_id, payment_method_id, qty)
+  values (gb_id, auth.uid(), pm_id, total_qty)
+  returning * into row;
+
+  for item in select * from jsonb_array_elements(items) loop
+    item_qty := coalesce((item->>'qty')::int, 0);
+    if item_qty > 0 then
+      select * into m from menus where id = (item->>'menu_id')::uuid and restaurant_id = gb.restaurant_id and active = true;
+      if not found then raise exception 'invalid_menu_item'; end if;
+      insert into participation_items (participation_id, menu_id, name, base_price, qty)
+      values (row.id, m.id, m.name, m.base_price, item_qty);
+    end if;
+  end loop;
+
+  return row;
+end;
+$$;
+grant execute on function join_groupbuy_cart(uuid, uuid, jsonb) to authenticated;
+
 create or replace function leave_groupbuy(gb_id uuid)
 returns void language plpgsql security definer set search_path = public as $$
 declare
@@ -630,6 +693,7 @@ alter table menus enable row level security;
 -- insert가 막힐 수 있다. 명시적으로 enable + 정책을 둬서 의도를 고정한다.
 alter table groupbuys enable row level security;
 alter table participations enable row level security;
+alter table participation_items enable row level security;
 alter table payment_methods enable row level security;
 alter table chat_rooms enable row level security;
 alter table chat_participants enable row level security;
@@ -678,6 +742,16 @@ create policy "users update own participation" on participations for update to a
 -- 운영자가 "주문 요청 관리"에서 전체 참여자를 보고 실제 결제(hold_status/charged_amount)를 처리해야 함.
 create policy "admins view all participations" on participations for select to authenticated using (is_admin());
 create policy "admins update participations" on participations for update to authenticated using (is_admin()) with check (is_admin());
+
+-- participation_items: 쓰기는 join_groupbuy_cart(security definer)로만, 조회는 본인/개설자/운영자.
+create policy "users view own participation items" on participation_items for select to authenticated
+  using (exists (select 1 from participations p where p.id = participation_items.participation_id and p.user_id = auth.uid()));
+create policy "creators view participation items of their groupbuys" on participation_items for select to authenticated
+  using (exists (
+    select 1 from participations p join groupbuys g on g.id = p.groupbuy_id
+    where p.id = participation_items.participation_id and g.creator_id = auth.uid()
+  ));
+create policy "admins view all participation items" on participation_items for select to authenticated using (is_admin());
 
 create policy "users manage own payment methods" on payment_methods for all to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());

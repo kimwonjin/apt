@@ -19,18 +19,25 @@ interface PaymentMethodEmbed {
   billing_key: string | null;
   customer_key: string | null;
 }
+interface ItemEmbed {
+  name: string;
+  base_price: number;
+  qty: number;
+}
 interface ParticipationRow {
   id: string;
   qty: number;
   hold_status: string;
   charged_amount: number | null;
   payment_methods: PaymentMethodEmbed | PaymentMethodEmbed[] | null;
+  participation_items: ItemEmbed[];
 }
 interface OrderRow {
   id: string;
   title: string;
   base_price: number;
   final_discount_percent: number | null;
+  pricing_mode: 'menu' | 'fixed';
   pickup_place: string | null;
   pickup_time: string | null;
   deadline: string;
@@ -47,14 +54,33 @@ function one<T>(v: T | T[] | null): T | null {
 function unitPrice(o: OrderRow) {
   return priceAfterDiscount(o.base_price, o.final_discount_percent ?? 0);
 }
+// 장바구니형(participation_items 존재)이면 항목별 합산, 아니면 기존 방식(단가×qty).
+function participationAmount(o: OrderRow, p: ParticipationRow) {
+  if (p.participation_items.length > 0) {
+    const pct = o.final_discount_percent ?? 0;
+    return p.participation_items.reduce((sum, i) => sum + priceAfterDiscount(i.base_price, pct) * i.qty, 0);
+  }
+  return unitPrice(o) * p.qty;
+}
 function totalQty(o: OrderRow) {
   return o.participations.reduce((sum, p) => sum + p.qty, 0);
 }
 function totalAmount(o: OrderRow) {
-  return o.participations.reduce((sum, p) => sum + (p.charged_amount ?? unitPrice(o) * p.qty), 0);
+  return o.participations.reduce((sum, p) => sum + (p.charged_amount ?? participationAmount(o, p)), 0);
 }
 function heldCount(o: OrderRow) {
   return o.participations.filter((p) => p.hold_status === 'held').length;
+}
+// 장바구니형은 참여자마다 메뉴 구성이 다를 수 있어 전체 항목을 이름별로 합산해 보여준다.
+function itemSummary(o: OrderRow): string | null {
+  const totals = new Map<string, number>();
+  for (const p of o.participations) {
+    for (const i of p.participation_items) {
+      totals.set(i.name, (totals.get(i.name) ?? 0) + i.qty);
+    }
+  }
+  if (totals.size === 0) return null;
+  return [...totals.entries()].map(([name, qty]) => `${name} ×${qty}`).join(', ');
 }
 
 // 공구 성사 → (1) 식당에 주문 전달 (2) 참여자 결제 승인, 이 두 가지를 운영자가 처리하는 화면.
@@ -76,7 +102,7 @@ export function OrderQueueScreen({ navigation }: Props) {
     const { data } = await supabase
       .from('groupbuys')
       .select(
-        'id, title, base_price, final_discount_percent, pickup_place, pickup_time, deadline, order_sent_at, restaurants(name, phone), menus(name), participations(id, qty, hold_status, charged_amount, payment_methods(billing_key, customer_key))'
+        'id, title, base_price, final_discount_percent, pricing_mode, pickup_place, pickup_time, deadline, order_sent_at, restaurants(name, phone), menus(name), participations(id, qty, hold_status, charged_amount, payment_methods(billing_key, customer_key), participation_items(name, base_price, qty))'
       )
       .eq('building_id', buildingId)
       .eq('status', 'success')
@@ -95,10 +121,11 @@ export function OrderQueueScreen({ navigation }: Props) {
   const orderSheetText = (o: OrderRow) => {
     const restaurant = one(o.restaurants);
     const menu = one(o.menus);
+    const summary = itemSummary(o);
     return [
       `[빌딩공구 주문 요청]`,
       `식당: ${restaurant?.name ?? '-'}`,
-      `메뉴: ${menu?.name ?? o.title} × ${totalQty(o)}개`,
+      `메뉴: ${summary ?? `${menu?.name ?? o.title} × ${totalQty(o)}개`}`,
       `합계: ${formatPrice(totalAmount(o))}`,
       `픽업 장소: ${o.pickup_place ?? '1층 로비'}`,
       `픽업 시각: ${o.pickup_time ?? '마감 직후'}`,
@@ -136,7 +163,6 @@ export function OrderQueueScreen({ navigation }: Props) {
     setPayingId(o.id);
     let succeeded = 0;
     let failed = 0;
-    const amount = unitPrice(o);
     for (const p of targets) {
       const pm = one(p.payment_methods);
       if (!pm?.billing_key || !pm.customer_key) {
@@ -145,7 +171,7 @@ export function OrderQueueScreen({ navigation }: Props) {
         continue;
       }
       try {
-        const chargeAmount = amount * p.qty;
+        const chargeAmount = participationAmount(o, p);
         await chargeBilling(pm.billing_key, {
           customerKey: pm.customer_key,
           amount: chargeAmount,
@@ -243,6 +269,7 @@ function OrderCard({
 }) {
   const restaurant = one(order.restaurants);
   const menu = one(order.menus);
+  const summary = itemSummary(order);
   const sent = !!order.order_sent_at;
   const held = heldCount(order);
 
@@ -255,7 +282,7 @@ function OrderCard({
         </View>
       </View>
       <Text style={styles.cardLine}>
-        {menu?.name ?? order.title} × {totalQty(order)}개 · {formatPrice(totalAmount(order))}
+        {summary ?? `${menu?.name ?? order.title} × ${totalQty(order)}개`} · {formatPrice(totalAmount(order))}
       </Text>
       <Text style={styles.cardLine}>
         픽업: {order.pickup_place ?? '1층 로비'} · {order.pickup_time ?? '마감 직후'}

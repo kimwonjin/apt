@@ -9,8 +9,9 @@ import { useGroupBuy } from '../../hooks/useGroupBuy';
 import { supabase } from '../../lib/supabase';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
 import { formatDate, formatDday, formatPrice } from '../../lib/format';
-import { nextTier, priceAfterDiscount, TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
+import { discountPercent as tierPercent, nextTier, priceAfterDiscount, TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
 import { QtyStepper } from '../../components/QtyStepper';
+import { CartItem } from '../../types/domain';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'GroupBuyDetail'>;
 
@@ -18,6 +19,13 @@ interface Participant {
   id: string;
   name: string;
   qty: number;
+}
+
+interface MenuRow {
+  id: string;
+  name: string;
+  base_price: number;
+  photo_url: string | null;
 }
 
 const MAX_QTY = 10;
@@ -33,6 +41,9 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
   const [joined, setJoined] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [qty, setQty] = useState(1);
+  const [restaurantMenus, setRestaurantMenus] = useState<MenuRow[]>([]);
+  const [cart, setCart] = useState<Record<string, number>>({});
+  const [myItems, setMyItems] = useState<CartItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [openingChat, setOpeningChat] = useState(false);
@@ -54,7 +65,17 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
           if (cancelled || !data) return;
           const mine = data.find((p) => p.user_id === myUserId);
           setJoined(!!mine);
-          if (mine) setQty(mine.qty);
+          if (mine) {
+            setQty(mine.qty);
+            const { data: items } = await supabase
+              .from('participation_items')
+              .select('menu_id, name, base_price, qty')
+              .eq('participation_id', mine.id);
+            if (!cancelled)
+              setMyItems((items ?? []).map((i) => ({ menuId: i.menu_id, name: i.name, basePrice: i.base_price, qty: i.qty })));
+          } else if (!cancelled) {
+            setMyItems([]);
+          }
           const ids = [...new Set(data.map((p) => p.user_id))];
           const { data: profiles } = await supabase.rpc('display_names', { ids });
           const nameMap = new Map(((profiles ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
@@ -66,6 +87,24 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
       };
     }, [myUserId, route.params.groupBuyId, refresh])
   );
+
+  // 자유참여형(장바구니) 공구는 참여 전에 이 식당의 메뉴 목록을 보여줘야 담을 수 있다.
+  useEffect(() => {
+    if (groupBuy?.pricingMode !== 'fixed') return;
+    let cancelled = false;
+    supabase
+      .from('menus')
+      .select('id, name, base_price, photo_url')
+      .eq('restaurant_id', groupBuy.restaurant.id)
+      .eq('active', true)
+      .order('name')
+      .then(({ data }) => {
+        if (!cancelled) setRestaurantMenus(data ?? []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [groupBuy?.pricingMode, groupBuy?.restaurant.id]);
 
   const isMine = myUserId === groupBuy?.creator.id;
   const isOpen = groupBuy?.status === 'open' && new Date(groupBuy.deadline).getTime() > Date.now();
@@ -107,6 +146,43 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
     refresh();
   };
 
+  const setCartQty = (menuId: string, next: number) => {
+    setCart((prev) => {
+      const copy = { ...prev };
+      if (next <= 0) delete copy[menuId];
+      else copy[menuId] = next;
+      return copy;
+    });
+  };
+
+  const handleJoinCart = async () => {
+    if (!groupBuy || busy) return;
+    const items = Object.entries(cart)
+      .filter(([, q]) => q > 0)
+      .map(([menu_id, q]) => ({ menu_id, qty: q }));
+    if (items.length === 0) return;
+    setBusy(true);
+    setActionError(null);
+    const pmId = await ensurePaymentMethod();
+    if (!pmId) {
+      setBusy(false);
+      Alert.alert('카드 등록이 필요해요', '참여하려면 먼저 결제수단(카드)을 등록해주세요.', [
+        { text: '취소', style: 'cancel' },
+        { text: '등록하러 가기', onPress: () => (navigation as any).getParent()?.navigate('내정보', { screen: 'PaymentMethods' }) },
+      ]);
+      return;
+    }
+    const { error: e } = await supabase.rpc('join_groupbuy_cart', { gb_id: groupBuy.id, pm_id: pmId, items });
+    setBusy(false);
+    if (e) {
+      setActionError(joinErrorMessage(e.message));
+      return;
+    }
+    setJoined(true);
+    setCart({});
+    refresh();
+  };
+
   const handleLeave = async () => {
     if (!groupBuy || busy) return;
     setBusy(true);
@@ -119,6 +195,7 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
     }
     setJoined(false);
     setQty(1);
+    setMyItems([]);
     refresh();
   };
 
@@ -149,10 +226,23 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
   }
 
   const { participantCount, minHeadcount, discountPercent, timeSlot, basePrice } = groupBuy;
+  const isCart = groupBuy.pricingMode === 'fixed';
   const met = participantCount >= minHeadcount;
   const price = priceAfterDiscount(basePrice, discountPercent);
   const next = nextTier(participantCount, timeSlot, groupBuy.discountTable);
   const progress = Math.min(participantCount / minHeadcount, 1);
+
+  const cartItems = Object.entries(cart)
+    .filter(([, q]) => q > 0)
+    .map(([menuId, q]) => {
+      const menu = restaurantMenus.find((m) => m.id === menuId);
+      return menu ? { menu, qty: q } : null;
+    })
+    .filter((v): v is { menu: MenuRow; qty: number } => v !== null);
+  const cartQty = cartItems.reduce((sum, i) => sum + i.qty, 0);
+  const previewPct = tierPercent(participantCount + cartQty, timeSlot, groupBuy.discountTable);
+  const cartTotal = cartItems.reduce((sum, i) => sum + priceAfterDiscount(i.menu.base_price, previewPct) * i.qty, 0);
+  const myItemsPct = groupBuy.finalDiscountPercent ?? discountPercent;
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -181,11 +271,13 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
           {groupBuy.title}
         </Text>
 
-        <View style={styles.priceRow}>
-          {discountPercent > 0 && <Text style={styles.discount}>{discountPercent}%↓</Text>}
-          <Text style={styles.groupPrice}>{formatPrice(price)}</Text>
-          {discountPercent > 0 && <Text style={styles.marketPrice}>{formatPrice(basePrice)}</Text>}
-        </View>
+        {!isCart && (
+          <View style={styles.priceRow}>
+            {discountPercent > 0 && <Text style={styles.discount}>{discountPercent}%↓</Text>}
+            <Text style={styles.groupPrice}>{formatPrice(price)}</Text>
+            {discountPercent > 0 && <Text style={styles.marketPrice}>{formatPrice(basePrice)}</Text>}
+          </View>
+        )}
 
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
@@ -199,10 +291,45 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
           </Text>
         )}
 
-        {!isMine && isOpen && !joined && (
+        {!isMine && isOpen && !joined && !isCart && (
           <View style={styles.qtyRow}>
             <Text style={styles.sectionLabel}>수량</Text>
             <QtyStepper value={qty} onChange={setQty} max={MAX_QTY} />
+          </View>
+        )}
+
+        {!isMine && isOpen && !joined && isCart && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>메뉴 담기 — 원하는 메뉴를 각각 담을 수 있어요</Text>
+            {restaurantMenus.length === 0 ? (
+              <Text style={styles.note}>메뉴를 불러오는 중...</Text>
+            ) : (
+              <View style={styles.menuList}>
+                {restaurantMenus.map((m) => (
+                  <MenuCartRow key={m.id} menu={m} qty={cart[m.id] ?? 0} onChange={(q) => setCartQty(m.id, q)} />
+                ))}
+              </View>
+            )}
+            {cartItems.length > 0 && (
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>합계 ({previewPct}%↓)</Text>
+                <Text style={styles.totalValue}>{formatPrice(cartTotal)}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {joined && isCart && myItems.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>내가 담은 메뉴</Text>
+            {myItems.map((i) => (
+              <View key={i.menuId} style={styles.previewRow}>
+                <Text style={styles.previewLabel}>
+                  {i.name} × {i.qty}개
+                </Text>
+                <Text style={styles.previewValue}>{formatPrice(priceAfterDiscount(i.basePrice, myItemsPct) * i.qty)}</Text>
+              </View>
+            ))}
           </View>
         )}
 
@@ -246,6 +373,16 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
           <Pressable style={styles.primaryCta} onPress={handleLeave} disabled={busy}>
             <Text style={styles.primaryCtaText}>{busy ? '처리 중...' : '참여 취소'}</Text>
           </Pressable>
+        ) : isCart ? (
+          <Pressable
+            style={[styles.primaryCta, (busy || cartItems.length === 0) && styles.primaryCtaDisabled]}
+            onPress={handleJoinCart}
+            disabled={busy || cartItems.length === 0}
+          >
+            <Text style={styles.primaryCtaText}>
+              {busy ? '처리 중...' : cartItems.length > 0 ? `${formatPrice(cartTotal)} 담은 대로 참여하기` : '메뉴를 담아주세요'}
+            </Text>
+          </Pressable>
         ) : (
           <Pressable style={styles.primaryCta} onPress={handleJoin} disabled={busy}>
             <Text style={styles.primaryCtaText}>
@@ -271,6 +408,34 @@ function Row({ label, value }: { label: string; value: string }) {
     <View style={styles.row}>
       <Text style={styles.sectionLabel}>{label}</Text>
       <Text style={styles.rowValue}>{value}</Text>
+    </View>
+  );
+}
+
+function MenuCartRow({ menu, qty, onChange }: { menu: MenuRow; qty: number; onChange: (qty: number) => void }) {
+  return (
+    <View style={styles.menuRow}>
+      <View style={styles.menuInfo}>
+        <Text style={styles.menuName} numberOfLines={1}>
+          {menu.name}
+        </Text>
+        <Text style={styles.menuPrice}>{formatPrice(menu.base_price)}</Text>
+      </View>
+      {qty > 0 ? (
+        <View style={styles.menuStepper}>
+          <Pressable style={styles.stepBtn} onPress={() => onChange(qty - 1)} hitSlop={8}>
+            <Text style={styles.stepBtnText}>−</Text>
+          </Pressable>
+          <Text style={styles.stepValue}>{qty}개</Text>
+          <Pressable style={styles.stepBtn} onPress={() => onChange(qty + 1)} hitSlop={8}>
+            <Text style={styles.stepBtnText}>+</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable style={styles.addBtn} onPress={() => onChange(1)}>
+          <Text style={styles.addBtnText}>담기</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -311,6 +476,47 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, gap: spacing.sm },
   rowValue: { fontSize: fontSize.md, color: colors.textPrimary, fontWeight: fontWeight.medium, flexShrink: 1, textAlign: 'right' },
   participantRow: { fontSize: fontSize.md, color: colors.textPrimary, paddingVertical: 3 },
+  note: { fontSize: fontSize.base, color: colors.textTertiary, marginTop: spacing.xs },
+  menuList: { gap: spacing.xs, marginTop: spacing.xs },
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.fillSubtle,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  menuInfo: { flex: 1, marginRight: spacing.sm },
+  menuName: { fontSize: fontSize.md, fontWeight: fontWeight.medium, color: colors.textPrimary },
+  menuPrice: { fontSize: fontSize.base, color: colors.textSecondary, marginTop: 1 },
+  addBtn: { backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: 8 },
+  addBtnText: { color: colors.white, fontSize: fontSize.base, fontWeight: fontWeight.semibold },
+  menuStepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  stepBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.pill,
+    backgroundColor: colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepBtnText: { fontSize: fontSize.lg, fontWeight: fontWeight.bold, color: colors.textPrimary },
+  stepValue: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary, minWidth: 32, textAlign: 'center' },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginTop: spacing.xs,
+    paddingTop: spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+  totalLabel: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  totalValue: { fontSize: fontSize.xxl, fontWeight: fontWeight.heavy, color: colors.primary },
+  previewRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
+  previewLabel: { fontSize: fontSize.md, color: colors.textSecondary },
+  previewValue: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.primary },
   ctaBar: {
     flexDirection: 'row',
     gap: spacing.sm,

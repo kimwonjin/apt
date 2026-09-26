@@ -54,11 +54,17 @@ export function GroupBuyCard({ groupBuy, onPress }: Props) {
           {status !== 'open' ? ` · ${formatDate(groupBuy.deadline)}` : ''}
         </Text>
 
-        <View style={styles.priceRow}>
-          {discountPercent > 0 && <Text style={styles.discount}>{discountPercent}%</Text>}
-          <Text style={styles.groupPrice}>{formatPrice(price)}</Text>
-          {discountPercent > 0 && <Text style={styles.marketPrice}>{formatPrice(basePrice)}</Text>}
-        </View>
+        {groupBuy.pricingMode === 'fixed' ? (
+          <Text style={styles.cartNote}>
+            메뉴를 담아서 참여해요{discountPercent > 0 ? ` · 지금 ${discountPercent}% 할인` : ''}
+          </Text>
+        ) : (
+          <View style={styles.priceRow}>
+            {discountPercent > 0 && <Text style={styles.discount}>{discountPercent}%</Text>}
+            <Text style={styles.groupPrice}>{formatPrice(price)}</Text>
+            {discountPercent > 0 && <Text style={styles.marketPrice}>{formatPrice(basePrice)}</Text>}
+          </View>
+        )}
 
         <View style={styles.progressTrack}>
           <View
@@ -92,6 +98,7 @@ const styles = StyleSheet.create({
   discount: { fontSize: fontSize.lg, fontWeight: fontWeight.heavy, color: colors.danger },
   groupPrice: { fontSize: fontSize.xxl, fontWeight: fontWeight.heavy, color: colors.primary },
   marketPrice: { fontSize: fontSize.baseLg, color: colors.textDisabled, textDecorationLine: 'line-through' },
+  cartNote: { fontSize: fontSize.md, color: colors.textSecondary, fontWeight: fontWeight.medium, marginTop: 4 },
   progressTrack: { height: 6, borderRadius: radius.pill, backgroundColor: colors.divider, marginTop: 8, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: radius.pill },
   footerRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
