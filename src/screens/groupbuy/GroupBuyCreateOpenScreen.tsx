@@ -5,6 +5,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { HomeStackParamList } from '../../navigation/types';
 import { useAppState } from '../../state/AppStateContext';
 import { supabase } from '../../lib/supabase';
+import { Alert } from '../../lib/alert';
 import { formatPrice } from '../../lib/format';
 import { discountPercent, FIXED_DISCOUNT_TABLE, priceAfterDiscount, TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
@@ -160,7 +161,10 @@ export function GroupBuyCreateOpenScreen({ navigation }: Props) {
       .limit(1)
       .maybeSingle();
     const items = cartItems.map((i) => ({ menu_id: i.menu.id, qty: i.qty }));
-    await supabase.rpc('join_groupbuy_cart', { gb_id: data.id, pm_id: pm?.id ?? null, items });
+    const { error: joinError } = await supabase.rpc('join_groupbuy_cart', { gb_id: data.id, pm_id: pm?.id ?? null, items });
+    if (joinError) {
+      Alert.alert('공구는 만들어졌는데 참여 등록에 실패했어요', joinError.message);
+    }
 
     setSubmitting(false);
     navigation.replace('GroupBuyDetail', { groupBuyId: data.id });

@@ -5,6 +5,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { HomeStackParamList } from '../../navigation/types';
 import { useAppState } from '../../state/AppStateContext';
 import { supabase } from '../../lib/supabase';
+import { Alert } from '../../lib/alert';
 import { formatPrice } from '../../lib/format';
 import { buildDiscountTable, chargeAmount, DEFAULT_DISCOUNT_TABLE, DiscountTable, discountPercent, TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
 import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spacing } from '../../theme';
@@ -151,7 +152,10 @@ export function GroupBuyCreateScreen({ navigation }: Props) {
       .not('billing_key', 'is', null)
       .limit(1)
       .maybeSingle();
-    await supabase.rpc('join_groupbuy', { gb_id: data.id, pm_id: pm?.id ?? null, want_qty: myQty });
+    const { error: joinError } = await supabase.rpc('join_groupbuy', { gb_id: data.id, pm_id: pm?.id ?? null, want_qty: myQty });
+    if (joinError) {
+      Alert.alert('공구는 만들어졌는데 참여 등록에 실패했어요', joinError.message);
+    }
 
     setSubmitting(false);
     navigation.replace('GroupBuyDetail', { groupBuyId: data.id });
