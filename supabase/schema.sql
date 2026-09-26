@@ -344,6 +344,10 @@ returns int language sql immutable as $$
 $$;
 
 -- ── 참여 증감 → participant_count + discount_percent 실시간 갱신 ──
+-- participant_count는 참여자 row 수가 아니라 qty 합계다. 한 사람이 팀원 몫까지
+-- 여러 개(qty)를 대신 주문하는 경우(오프라인으로 모아서 한 번에 신청)를 실제
+-- 인원이 그만큼 모인 것과 동일하게 쳐주기로 함(기획 의도 확인됨) —
+-- "혼자 수량만 늘려 최고 할인 받기"가 아니라 "여러 명 몫을 한 로그인으로 대신 신청".
 create or replace function refresh_groupbuy_stats()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare
@@ -353,7 +357,7 @@ declare
   m_id uuid;
   mode text;
 begin
-  select count(*) into cnt from participations where groupbuy_id = gb_id;
+  select coalesce(sum(qty), 0) into cnt from participations where groupbuy_id = gb_id;
   select time_slot, menu_id, pricing_mode into slot, m_id, mode from groupbuys where id = gb_id;
   update groupbuys
     set participant_count = cnt,
