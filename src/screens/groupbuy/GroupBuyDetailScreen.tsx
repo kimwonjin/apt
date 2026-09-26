@@ -16,7 +16,10 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'GroupBuyDetail'>;
 interface Participant {
   id: string;
   name: string;
+  qty: number;
 }
+
+const MAX_QTY = 10;
 
 function slotLabel(slot: TimeSlot) {
   const { name, hint } = TIME_SLOT_LABEL[slot];
@@ -28,6 +31,7 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [joined, setJoined] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [qty, setQty] = useState(1);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [openingChat, setOpeningChat] = useState(false);
@@ -43,15 +47,18 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
       let cancelled = false;
       supabase
         .from('participations')
-        .select('id, user_id')
+        .select('id, user_id, qty')
         .eq('groupbuy_id', route.params.groupBuyId)
         .then(async ({ data }) => {
           if (cancelled || !data) return;
-          setJoined(data.some((p) => p.user_id === myUserId));
+          const mine = data.find((p) => p.user_id === myUserId);
+          setJoined(!!mine);
+          if (mine) setQty(mine.qty);
           const ids = [...new Set(data.map((p) => p.user_id))];
           const { data: profiles } = await supabase.rpc('display_names', { ids });
           const nameMap = new Map(((profiles ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]));
-          if (!cancelled) setParticipants(data.map((p) => ({ id: p.id, name: nameMap.get(p.user_id) || '참여자' })));
+          if (!cancelled)
+            setParticipants(data.map((p) => ({ id: p.id, name: nameMap.get(p.user_id) || '참여자', qty: p.qty })));
         });
       return () => {
         cancelled = true;
@@ -89,7 +96,7 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
       ]);
       return;
     }
-    const { error: e } = await supabase.rpc('join_groupbuy', { gb_id: groupBuy.id, pm_id: pmId, want_qty: 1 });
+    const { error: e } = await supabase.rpc('join_groupbuy', { gb_id: groupBuy.id, pm_id: pmId, want_qty: qty });
     setBusy(false);
     if (e) {
       setActionError(joinErrorMessage(e.message));
@@ -110,6 +117,7 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
       return;
     }
     setJoined(false);
+    setQty(1);
     refresh();
   };
 
@@ -190,6 +198,31 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
           </Text>
         )}
 
+        {!isMine && isOpen && !joined && (
+          <View style={styles.qtyRow}>
+            <Text style={styles.sectionLabel}>수량</Text>
+            <View style={styles.qtyStepper}>
+              <Pressable
+                style={[styles.qtyBtn, qty <= 1 && styles.qtyBtnDisabled]}
+                onPress={() => setQty((q) => Math.max(1, q - 1))}
+                disabled={qty <= 1}
+                hitSlop={8}
+              >
+                <Text style={styles.qtyBtnText}>−</Text>
+              </Pressable>
+              <Text style={styles.qtyValue}>{qty}개</Text>
+              <Pressable
+                style={[styles.qtyBtn, qty >= MAX_QTY && styles.qtyBtnDisabled]}
+                onPress={() => setQty((q) => Math.min(MAX_QTY, q + 1))}
+                disabled={qty >= MAX_QTY}
+                hitSlop={8}
+              >
+                <Text style={styles.qtyBtnText}>+</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
         <View style={styles.section}>
           <Row label="주문 마감 시간대" value={slotLabel(timeSlot)} />
           <Row label="로비 픽업 장소" value={groupBuy.pickupPlace ?? '-'} />
@@ -203,6 +236,7 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
             {participants.map((p) => (
               <Text key={p.id} style={styles.participantRow}>
                 {p.name}
+                {p.qty > 1 ? ` · ${p.qty}개` : ''}
               </Text>
             ))}
           </View>
@@ -231,7 +265,9 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
           </Pressable>
         ) : (
           <Pressable style={styles.primaryCta} onPress={handleJoin} disabled={busy}>
-            <Text style={styles.primaryCtaText}>{busy ? '처리 중...' : `${formatPrice(price)} 참여하기`}</Text>
+            <Text style={styles.primaryCtaText}>
+              {busy ? '처리 중...' : `${formatPrice(price * qty)} 참여하기${qty > 1 ? ` (${qty}개)` : ''}`}
+            </Text>
           </Pressable>
         )}
       </View>
@@ -278,6 +314,27 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', borderRadius: radius.pill, backgroundColor: colors.primary },
   participantText: { fontSize: fontSize.md, color: colors.textSecondary },
   hint: { fontSize: fontSize.md, color: colors.primary, fontWeight: fontWeight.medium },
+  qtyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginTop: spacing.xs,
+  },
+  qtyStepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  qtyBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.pill,
+    backgroundColor: colors.fillSubtle,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qtyBtnDisabled: { opacity: 0.4 },
+  qtyBtnText: { fontSize: fontSize.xl, fontWeight: fontWeight.bold, color: colors.textPrimary },
+  qtyValue: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold, color: colors.textPrimary, minWidth: 36, textAlign: 'center' },
   section: { gap: spacing.xs, backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.md, marginTop: spacing.xs },
   sectionLabel: { fontSize: fontSize.md, color: colors.textSecondary, fontWeight: fontWeight.medium },
   row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, gap: spacing.sm },
