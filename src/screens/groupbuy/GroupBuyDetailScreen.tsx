@@ -174,7 +174,7 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
     const { error: e } = await supabase.rpc('leave_groupbuy', { gb_id: groupBuy.id });
     setBusy(false);
     if (e) {
-      setActionError('마감된 공구는 취소할 수 없어요.');
+      setActionError(leaveErrorMessage(e.message));
       return;
     }
     setJoined(false);
@@ -227,6 +227,9 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
   const previewPct = tierPercent(participantCount + cartQty, timeSlot, groupBuy.discountTable);
   const cartTotal = cartItems.reduce((sum, i) => sum + priceAfterDiscount(i.menu.base_price, previewPct) * i.qty, 0);
   const myItemsPct = groupBuy.finalDiscountPercent ?? discountPercent;
+  // 취소는 마감 1시간 전까지만, 개설자는 다른 참여자가 이미 있으면 취소 불가.
+  const canCancel = isOpen && new Date(groupBuy.deadline).getTime() - Date.now() > 60 * 60 * 1000;
+  const creatorBlocked = isMine && participants.length > 1;
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -345,13 +348,17 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
             <Text style={styles.chatBtnText}>💬</Text>
           </Pressable>
         )}
-        {isMine && joined ? (
-          <View style={[styles.primaryCta, styles.primaryCtaDisabled]}>
-            <Text style={styles.primaryCtaText}>내가 만든 공구예요</Text>
-          </View>
-        ) : !isOpen ? (
+        {!isOpen ? (
           <View style={[styles.primaryCta, styles.primaryCtaDisabled]}>
             <Text style={styles.primaryCtaText}>{groupBuy.status === 'success' ? '성사된 공구예요' : '마감된 공구예요'}</Text>
+          </View>
+        ) : joined && creatorBlocked ? (
+          <View style={[styles.primaryCta, styles.primaryCtaDisabled]}>
+            <Text style={styles.primaryCtaText}>다른 참여자가 있어 취소할 수 없어요</Text>
+          </View>
+        ) : joined && !canCancel ? (
+          <View style={[styles.primaryCta, styles.primaryCtaDisabled]}>
+            <Text style={styles.primaryCtaText}>마감 1시간 전부터는 취소할 수 없어요</Text>
           </View>
         ) : joined ? (
           <Pressable style={styles.primaryCta} onPress={handleLeave} disabled={busy}>
@@ -385,6 +392,12 @@ function joinErrorMessage(raw: string) {
   if (raw.includes('groupbuy_not_open')) return '이미 마감/성사된 공구예요.';
   if (raw.includes('duplicate') || raw.includes('23505')) return '이미 참여 중이에요.';
   return '참여에 실패했어요. 다시 시도해주세요.';
+}
+
+function leaveErrorMessage(raw: string) {
+  if (raw.includes('creator_cannot_cancel_with_participants')) return '다른 참여자가 있어서 지금은 취소할 수 없어요.';
+  if (raw.includes('too_late_to_cancel')) return '마감 1시간 전부터는 취소할 수 없어요.';
+  return '취소에 실패했어요. 다시 시도해주세요.';
 }
 
 function Row({ label, value }: { label: string; value: string }) {
