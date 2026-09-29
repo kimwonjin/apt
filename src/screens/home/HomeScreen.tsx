@@ -104,7 +104,7 @@ export function HomeScreen({ navigation }: Props) {
         />
       )}
 
-      <Pressable style={styles.fab} onPress={() => navigation.navigate('GroupBuyCreate')} hitSlop={8}>
+      <Pressable style={styles.fab} onPress={() => navigation.navigate('GroupBuyCreateOpen')} hitSlop={8}>
         <Text style={styles.fabText}>+ 공구 만들기</Text>
       </Pressable>
     </SafeAreaView>
