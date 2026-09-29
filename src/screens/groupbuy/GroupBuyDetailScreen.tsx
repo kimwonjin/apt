@@ -393,8 +393,7 @@ function joinErrorMessage(raw: string) {
   if (raw.includes('empty_cart')) return '담은 메뉴가 없어요.';
   if (raw.includes('invalid_menu_item')) return '메뉴 정보가 바뀌었어요. 새로고침 후 다시 담아주세요.';
   if (raw.includes('groupbuy_not_found')) return '공구를 찾을 수 없어요.';
-  // 원인 불명 — 진단을 위해 서버 에러 원문을 그대로 보여준다.
-  return `참여에 실패했어요: ${raw}`;
+  return '참여에 실패했어요. 다시 시도해주세요.';
 }
 
 function leaveErrorMessage(raw: string) {

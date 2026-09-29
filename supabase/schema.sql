@@ -467,18 +467,18 @@ grant execute on function display_names(uuid[]) to authenticated;
 create or replace function ensure_groupbuy_chat_room(gb_id uuid, notice_body text default null)
 returns uuid language plpgsql security definer set search_path = public as $$
 declare
-  room_id uuid;
+  v_room_id uuid;
 begin
-  select id into room_id from chat_rooms where groupbuy_id = gb_id;
-  if room_id is null then
-    insert into chat_rooms (groupbuy_id) values (gb_id) returning id into room_id;
+  select id into v_room_id from chat_rooms where groupbuy_id = gb_id;
+  if v_room_id is null then
+    insert into chat_rooms (groupbuy_id) values (gb_id) returning id into v_room_id;
   end if;
-  insert into chat_participants (room_id, user_id) values (room_id, auth.uid())
+  insert into chat_participants (room_id, user_id) values (v_room_id, auth.uid())
     on conflict (room_id, user_id) do nothing;
   if notice_body is not null then
-    insert into chat_messages (room_id, sender_id, body, type) values (room_id, null, notice_body, 'notice');
+    insert into chat_messages (room_id, sender_id, body, type) values (v_room_id, null, notice_body, 'notice');
   end if;
-  return room_id;
+  return v_room_id;
 end;
 $$;
 
@@ -579,7 +579,7 @@ returns void language plpgsql security definer set search_path = public as $$
 declare
   gb groupbuys;
   other_count int;
-  room_id uuid;
+  v_room_id uuid;
   my_name text;
 begin
   select * into gb from groupbuys where id = gb_id;
@@ -592,11 +592,11 @@ begin
   delete from participations where groupbuy_id = gb_id and user_id = auth.uid();
 
   -- 채팅방에서 나가지는 않고(이력 유지), 남은 사람들한테 알림만 남긴다.
-  select id into room_id from chat_rooms where groupbuy_id = gb_id;
-  if room_id is not null then
+  select id into v_room_id from chat_rooms where groupbuy_id = gb_id;
+  if v_room_id is not null then
     select name into my_name from profiles where id = auth.uid();
     insert into chat_messages (room_id, sender_id, body, type)
-      values (room_id, null, coalesce(my_name, '참여자') || '님이 참여를 취소했어요', 'notice');
+      values (v_room_id, null, coalesce(my_name, '참여자') || '님이 참여를 취소했어요', 'notice');
   end if;
 end;
 $$;
@@ -610,12 +610,12 @@ declare
   gb groupbuys;
   n int := 0;
   final_pct int;
-  room_id uuid;
+  v_room_id uuid;
 begin
   for gb in
     select * from groupbuys where status = 'open' and deadline <= now() for update skip locked
   loop
-    select id into room_id from chat_rooms where groupbuy_id = gb.id;
+    select id into v_room_id from chat_rooms where groupbuy_id = gb.id;
     if gb.participant_count >= gb.min_headcount then
       final_pct := case
         when gb.pricing_mode = 'fixed' then fixed_tier_discount_percent(gb.participant_count)
@@ -629,9 +629,9 @@ begin
         select user_id, 'groupbuy_success',
                jsonb_build_object('title', '공구가 성사됐어요!', 'body', gb.title, 'groupbuy_id', gb.id)
         from participations where groupbuy_id = gb.id;
-      if room_id is not null then
+      if v_room_id is not null then
         insert into chat_messages (room_id, sender_id, body, type)
-          values (room_id, null,
+          values (v_room_id, null,
             '🎉 공구가 성사됐어요! 픽업 장소: ' || coalesce(gb.pickup_place, '1층 로비') || ' · 수령 예정: ' || coalesce(gb.pickup_time, '마감 직후'),
             'notice');
       end if;
@@ -642,9 +642,9 @@ begin
         select user_id, 'groupbuy_failed',
                jsonb_build_object('title', '최소 인원이 모이지 않았어요', 'body', gb.title, 'groupbuy_id', gb.id)
         from participations where groupbuy_id = gb.id;
-      if room_id is not null then
+      if v_room_id is not null then
         insert into chat_messages (room_id, sender_id, body, type)
-          values (room_id, null, '😢 최소 인원이 모이지 않아 마감됐어요.', 'notice');
+          values (v_room_id, null, '😢 최소 인원이 모이지 않아 마감됐어요.', 'notice');
       end if;
     end if;
     n := n + 1;
@@ -739,13 +739,13 @@ after insert on participations for each row execute function notify_new_particip
 create or replace function notify_order_sent()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare
-  room_id uuid;
+  v_room_id uuid;
 begin
   if new.order_sent_at is not null and old.order_sent_at is null then
-    select id into room_id from chat_rooms where groupbuy_id = new.id;
-    if room_id is not null then
+    select id into v_room_id from chat_rooms where groupbuy_id = new.id;
+    if v_room_id is not null then
       insert into chat_messages (room_id, sender_id, body, type)
-        values (room_id, null, '📞 식당에 주문을 전달했어요. 준비되는 대로 픽업 안내드릴게요!', 'notice');
+        values (v_room_id, null, '📞 식당에 주문을 전달했어요. 준비되는 대로 픽업 안내드릴게요!', 'notice');
     end if;
   end if;
   return new;
