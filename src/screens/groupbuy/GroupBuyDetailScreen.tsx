@@ -183,13 +183,11 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
     refresh();
   };
 
+  // 참여하면 join_groupbuy(_cart)에서 이미 단체 채팅방에 들어가 있으니 여기선 조회만 한다.
   const handleChat = async () => {
     if (!groupBuy || openingChat) return;
     setOpeningChat(true);
-    const { data: roomId } = await supabase.rpc('create_or_get_chat_room', {
-      peer_id: groupBuy.creator.id,
-      gb_id: groupBuy.id,
-    });
+    const { data: roomId } = await supabase.rpc('get_groupbuy_chat_room', { gb_id: groupBuy.id });
     setOpeningChat(false);
     if (roomId) (navigation as any).getParent()?.navigate('채팅', { screen: 'ChatRoom', params: { roomId } });
   };
@@ -344,7 +342,7 @@ export function GroupBuyDetailScreen({ route, navigation }: Props) {
       </ScrollView>
 
       <View style={styles.ctaBar}>
-        {!isMine && joined && (
+        {joined && (
           <Pressable style={styles.chatBtn} onPress={handleChat} disabled={openingChat}>
             <Text style={styles.chatBtnText}>💬</Text>
           </Pressable>

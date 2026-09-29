@@ -17,7 +17,7 @@ function mapRow(row: MessageRow, myUserId: string | null, senderName?: string): 
     id: row.id,
     roomId: row.room_id,
     authorId: row.sender_id,
-    senderName: row.sender_id ? senderName || '상대방' : '공지',
+    senderName: row.sender_id ? senderName || '참여자' : '공지',
     isMine: !!row.sender_id && row.sender_id === myUserId,
     body: row.body,
     createdAt: row.created_at,

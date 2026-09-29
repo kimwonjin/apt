@@ -4,8 +4,6 @@ import type { DiscountTable, TimeSlot } from '../lib/discount';
 
 export type { TimeSlot };
 
-export type Role = '참여자' | '식당' | '운영자';
-
 export type GroupBuyType = 'delivery' | 'install';
 // open: 진행중 / success: 성사확정 / failed: 마감실패 / canceled: 취소됨 / done: 종료
 export type GroupBuyStatus = 'open' | 'success' | 'failed' | 'canceled' | 'done';
@@ -77,14 +75,14 @@ export interface MyParticipation {
   items?: CartItem[]; // 장바구니형 참여일 때만 존재
 }
 
+// 공구별 단체 채팅방(참여한 사람들끼리) 요약 — 1:1이 아니라 그룹방이라 "상대방" 개념이 없다.
 export interface ChatRoomSummary {
   id: string;
-  peerName: string;
-  peerRoleLabel: Role;
+  title: string; // 공구 제목(삭제된 공구면 "채팅방")
+  participantCount: number;
   lastMessage: string;
   updatedAt: string;
   unreadCount: number;
-  groupBuyTitle?: string;
 }
 
 export interface ChatMessage {

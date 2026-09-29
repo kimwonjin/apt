@@ -48,9 +48,12 @@ drop function if exists refresh_groupbuy_stats() cascade;
 drop function if exists refresh_restaurant_stats() cascade;
 drop function if exists handle_new_user() cascade;
 drop function if exists create_or_get_chat_room(uuid, uuid) cascade;
+drop function if exists ensure_groupbuy_chat_room(uuid, text) cascade;
+drop function if exists get_groupbuy_chat_room(uuid) cascade;
 drop function if exists is_room_participant(uuid) cascade;
 drop function if exists notify_new_chat_message() cascade;
 drop function if exists notify_new_participation() cascade;
+drop function if exists notify_order_sent() cascade;
 
 drop type if exists groupbuy_status cascade;
 drop type if exists groupbuy_type cascade;
@@ -459,6 +462,36 @@ language sql stable security definer set search_path = public as $$
 $$;
 grant execute on function display_names(uuid[]) to authenticated;
 
+-- 공구별 단체 채팅방(참여한 사람들끼리만) 자동 생성/참여 + 시스템 안내 메시지.
+-- join_groupbuy(_cart)/leave_groupbuy/sweep_expired_groupbuys/주문전달 트리거에서 공용으로 쓴다.
+create or replace function ensure_groupbuy_chat_room(gb_id uuid, notice_body text default null)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  room_id uuid;
+begin
+  select id into room_id from chat_rooms where groupbuy_id = gb_id;
+  if room_id is null then
+    insert into chat_rooms (groupbuy_id) values (gb_id) returning id into room_id;
+  end if;
+  insert into chat_participants (room_id, user_id) values (room_id, auth.uid())
+    on conflict (room_id, user_id) do nothing;
+  if notice_body is not null then
+    insert into chat_messages (room_id, sender_id, body, type) values (room_id, null, notice_body, 'notice');
+  end if;
+  return room_id;
+end;
+$$;
+
+-- 참여자 본인이 속한 공구 단체 채팅방을 조회(생성은 join 시점에 이미 끝남 — 여긴 읽기 전용).
+create or replace function get_groupbuy_chat_room(gb_id uuid)
+returns uuid language sql stable security definer set search_path = public as $$
+  select cp.room_id from chat_participants cp
+  join chat_rooms r on r.id = cp.room_id
+  where r.groupbuy_id = gb_id and cp.user_id = auth.uid()
+  limit 1;
+$$;
+grant execute on function get_groupbuy_chat_room(uuid) to authenticated;
+
 -- ── 참여하기 / 취소하기 (기능명세서 A상세-1, A상세-2) ─────
 -- 마감 전 + 미참여 상태에서만 참여. 동시 참여 충돌은 unique 제약이 막고,
 -- 마감(deadline) 초과분은 여기서 거른다 (부록 1: 서버 타임스탬프 기준 선착순).
@@ -467,6 +500,7 @@ returns participations language plpgsql security definer set search_path = publi
 declare
   gb groupbuys;
   row participations;
+  my_name text;
 begin
   select * into gb from groupbuys where id = gb_id for update;
   if not found then raise exception 'groupbuy_not_found'; end if;
@@ -477,6 +511,10 @@ begin
   insert into participations (groupbuy_id, user_id, payment_method_id, qty)
   values (gb_id, auth.uid(), pm_id, greatest(want_qty, 1))
   returning * into row;
+
+  select name into my_name from profiles where id = auth.uid();
+  perform ensure_groupbuy_chat_room(gb_id, coalesce(my_name, '참여자') || '님이 참여했어요 🎉');
+
   return row;
 end;
 $$;
@@ -496,6 +534,7 @@ declare
   m menus;
   item_qty int;
   total_qty int := 0;
+  my_name text;
 begin
   select * into gb from groupbuys where id = gb_id for update;
   if not found then raise exception 'groupbuy_not_found'; end if;
@@ -523,6 +562,9 @@ begin
     end if;
   end loop;
 
+  select name into my_name from profiles where id = auth.uid();
+  perform ensure_groupbuy_chat_room(gb_id, coalesce(my_name, '참여자') || '님이 참여했어요 🎉');
+
   return row;
 end;
 $$;
@@ -537,6 +579,8 @@ returns void language plpgsql security definer set search_path = public as $$
 declare
   gb groupbuys;
   other_count int;
+  room_id uuid;
+  my_name text;
 begin
   select * into gb from groupbuys where id = gb_id;
   if not found then raise exception 'groupbuy_not_found'; end if;
@@ -546,6 +590,14 @@ begin
     if other_count > 0 then raise exception 'creator_cannot_cancel_with_participants'; end if;
   end if;
   delete from participations where groupbuy_id = gb_id and user_id = auth.uid();
+
+  -- 채팅방에서 나가지는 않고(이력 유지), 남은 사람들한테 알림만 남긴다.
+  select id into room_id from chat_rooms where groupbuy_id = gb_id;
+  if room_id is not null then
+    select name into my_name from profiles where id = auth.uid();
+    insert into chat_messages (room_id, sender_id, body, type)
+      values (room_id, null, coalesce(my_name, '참여자') || '님이 참여를 취소했어요', 'notice');
+  end if;
 end;
 $$;
 grant execute on function leave_groupbuy(uuid) to authenticated;
@@ -558,10 +610,12 @@ declare
   gb groupbuys;
   n int := 0;
   final_pct int;
+  room_id uuid;
 begin
   for gb in
     select * from groupbuys where status = 'open' and deadline <= now() for update skip locked
   loop
+    select id into room_id from chat_rooms where groupbuy_id = gb.id;
     if gb.participant_count >= gb.min_headcount then
       final_pct := case
         when gb.pricing_mode = 'fixed' then fixed_tier_discount_percent(gb.participant_count)
@@ -575,6 +629,12 @@ begin
         select user_id, 'groupbuy_success',
                jsonb_build_object('title', '공구가 성사됐어요!', 'body', gb.title, 'groupbuy_id', gb.id)
         from participations where groupbuy_id = gb.id;
+      if room_id is not null then
+        insert into chat_messages (room_id, sender_id, body, type)
+          values (room_id, null,
+            '🎉 공구가 성사됐어요! 픽업 장소: ' || coalesce(gb.pickup_place, '1층 로비') || ' · 수령 예정: ' || coalesce(gb.pickup_time, '마감 직후'),
+            'notice');
+      end if;
     else
       update groupbuys set status = 'failed' where id = gb.id;
       update participations set hold_status = 'released' where groupbuy_id = gb.id and hold_status = 'held';
@@ -582,6 +642,10 @@ begin
         select user_id, 'groupbuy_failed',
                jsonb_build_object('title', '최소 인원이 모이지 않았어요', 'body', gb.title, 'groupbuy_id', gb.id)
         from participations where groupbuy_id = gb.id;
+      if room_id is not null then
+        insert into chat_messages (room_id, sender_id, body, type)
+          values (room_id, null, '😢 최소 인원이 모이지 않아 마감됐어요.', 'notice');
+      end if;
     end if;
     n := n + 1;
   end loop;
@@ -637,31 +701,9 @@ end;
 $$;
 grant execute on function materialize_subscription_runs() to authenticated;
 
--- ── 채팅방 생성/조회 (공구대장 그대로) ───────────────────
-create or replace function create_or_get_chat_room(peer_id uuid, gb_id uuid default null)
-returns uuid language plpgsql security definer set search_path = public as $$
-declare
-  found_room_id uuid;
-begin
-  if peer_id = auth.uid() then raise exception '자기 자신과는 채팅방을 만들 수 없습니다'; end if;
-  select cp1.room_id into found_room_id
-  from chat_participants cp1
-  join chat_participants cp2 on cp2.room_id = cp1.room_id and cp2.user_id = peer_id
-  join chat_rooms r on r.id = cp1.room_id
-  where cp1.user_id = auth.uid()
-    and r.groupbuy_id is not distinct from gb_id
-    and (select count(*) from chat_participants cp3 where cp3.room_id = cp1.room_id) = 2
-  limit 1;
-  if found_room_id is not null then
-    update chat_rooms set groupbuy_id = gb_id where id = found_room_id and groupbuy_id is null;
-    return found_room_id;
-  end if;
-  insert into chat_rooms (groupbuy_id) values (gb_id) returning id into found_room_id;
-  insert into chat_participants (room_id, user_id) values (found_room_id, auth.uid()), (found_room_id, peer_id);
-  return found_room_id;
-end;
-$$;
-grant execute on function create_or_get_chat_room(uuid, uuid) to authenticated;
+-- ── 채팅방(공구 단체방) ────────────────────────────────
+-- 방 생성/참여는 join_groupbuy(_cart)에서 ensure_groupbuy_chat_room()으로 자동 처리.
+-- 조회는 get_groupbuy_chat_room()(위쪽, 참여하기 함수들 앞에 정의).
 
 create or replace function notify_new_chat_message()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -692,6 +734,25 @@ end;
 $$;
 create trigger trg_notify_new_participation
 after insert on participations for each row execute function notify_new_participation();
+
+-- 운영자가 "주문 요청 관리"에서 식당에 전달 완료로 체크하면 참여자 단체방에 안내.
+create or replace function notify_order_sent()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  room_id uuid;
+begin
+  if new.order_sent_at is not null and old.order_sent_at is null then
+    select id into room_id from chat_rooms where groupbuy_id = new.id;
+    if room_id is not null then
+      insert into chat_messages (room_id, sender_id, body, type)
+        values (room_id, null, '📞 식당에 주문을 전달했어요. 준비되는 대로 픽업 안내드릴게요!', 'notice');
+    end if;
+  end if;
+  return new;
+end;
+$$;
+create trigger trg_notify_order_sent
+after update of order_sent_at on groupbuys for each row execute function notify_order_sent();
 
 -- ── RLS ─────────────────────────────────────────────────
 alter table buildings enable row level security;

@@ -14,7 +14,8 @@ interface MessageRow {
   sender_id: string | null;
 }
 
-// 방 참여 목록 → 상대방 이름 → 최근 메시지 → 연결된 공구 제목을 한 번씩만 조회.
+// 방 참여 목록 → 참여 인원 수 → 최근 메시지 → 연결된 공구 제목을 한 번씩만 조회.
+// 채팅방은 공구 하나당 하나(단체방)라 "상대방" 개념이 없다.
 export function useChatRooms() {
   const [rooms, setRooms] = useState<ChatRoomSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,8 +54,8 @@ export function useChatRooms() {
       return;
     }
 
-    const [{ data: peerRows }, { data: msgRows }] = await Promise.all([
-      supabase.from('chat_participants').select('room_id, user_id').in('room_id', roomIds).neq('user_id', user.id),
+    const [{ data: participantRows }, { data: msgRows }] = await Promise.all([
+      supabase.from('chat_participants').select('room_id').in('room_id', roomIds),
       supabase
         .from('chat_messages')
         .select('room_id, body, created_at, sender_id')
@@ -63,19 +64,17 @@ export function useChatRooms() {
         .returns<MessageRow[]>(),
     ]);
 
-    const peerUserIds = [...new Set((peerRows ?? []).map((p) => p.user_id))];
-    const { data: profileRowsRaw } = await supabase.rpc('display_names', { ids: peerUserIds });
-    const profileRows = (profileRowsRaw ?? []) as { id: string; name: string }[];
-
     const gbIds = [...new Set(myRows.map((r) => r.chat_rooms?.groupbuy_id).filter((id): id is string => !!id))];
-    let gbMap = new Map<string, { title: string; creator_id: string }>();
+    let gbMap = new Map<string, { title: string }>();
     if (gbIds.length > 0) {
-      const { data: gbRows } = await supabase.from('groupbuys').select('id, title, creator_id').in('id', gbIds);
-      gbMap = new Map((gbRows ?? []).map((g) => [g.id, { title: g.title, creator_id: g.creator_id }]));
+      const { data: gbRows } = await supabase.from('groupbuys').select('id, title').in('id', gbIds);
+      gbMap = new Map((gbRows ?? []).map((g) => [g.id, { title: g.title }]));
     }
 
-    const peerMap = new Map((peerRows ?? []).map((p) => [p.room_id, p]));
-    const profileMap = new Map((profileRows ?? []).map((p) => [p.id, p]));
+    const participantCountMap = new Map<string, number>();
+    for (const p of participantRows ?? []) {
+      participantCountMap.set(p.room_id, (participantCountMap.get(p.room_id) ?? 0) + 1);
+    }
     const lastMsgMap = new Map<string, MessageRow>();
     const unreadCountMap = new Map<string, number>();
     for (const m of msgRows ?? []) {
@@ -87,17 +86,15 @@ export function useChatRooms() {
     }
 
     const result: ChatRoomSummary[] = myRows.map((r) => {
-      const peer = peerMap.get(r.room_id);
       const lastMsg = lastMsgMap.get(r.room_id);
       const gb = r.chat_rooms?.groupbuy_id ? gbMap.get(r.chat_rooms.groupbuy_id) : undefined;
       return {
         id: r.room_id,
-        peerName: (peer && profileMap.get(peer.user_id)?.name) || '상대방',
-        peerRoleLabel: gb && peer?.user_id === gb.creator_id ? '식당' : '참여자',
+        title: gb?.title ?? '채팅방',
+        participantCount: participantCountMap.get(r.room_id) ?? 1,
         lastMessage: lastMsg?.body ?? '대화를 시작해보세요',
         updatedAt: lastMsg?.created_at ?? r.chat_rooms?.created_at ?? new Date().toISOString(),
         unreadCount: unreadCountMap.get(r.room_id) ?? 0,
-        groupBuyTitle: gb?.title,
       };
     });
 
