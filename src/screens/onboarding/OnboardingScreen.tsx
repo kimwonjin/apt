@@ -10,7 +10,7 @@ import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spac
 
 const SLIDES = [
   { title: '우리 빌딩에서, 점심을 더 싸게', body: '같은 빌딩 사람들과 모여 시키면 배달비가 확 줄어요.' },
-  { title: '많이 모일수록, 더 깎여요', body: '인원과 주문 시간대에 따라 할인율이 실시간으로 올라가요.' },
+  { title: '많이 모일수록, 더 깎여요', body: '인원과 주문 마감 시간대에 따라 할인율이 실시간으로 올라가요.' },
   { title: '로비에서 한 번에 픽업', body: '층마다 나누지 않고 1층 로비에서 받아가요.' },
 ];
 

@@ -2,8 +2,8 @@ import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { GroupBuy } from '../types/domain';
 import { colors, fontSize, fontWeight, radius, spacing } from '../theme';
-import { formatDday, formatPrice } from '../lib/format';
-import { chargeAmount, nextTier } from '../lib/discount';
+import { formatDate, formatDday, formatPrice } from '../lib/format';
+import { nextTier, priceAfterDiscount } from '../lib/discount';
 
 interface Props {
   groupBuy: GroupBuy;
@@ -25,8 +25,8 @@ export function GroupBuyCard({ groupBuy, onPress }: Props) {
     ? { fg: colors.danger, bg: colors.dangerLight }
     : { fg: colors.textSecondary, bg: colors.fillSubtle };
   const isBumped = !!groupBuy.bumpedAt && Date.now() - new Date(groupBuy.bumpedAt).getTime() < 24 * 60 * 60 * 1000;
-  const next = nextTier(participantCount, timeSlot);
-  const price = chargeAmount(basePrice, participantCount, timeSlot);
+  const next = nextTier(participantCount, timeSlot, groupBuy.discountTable);
+  const price = priceAfterDiscount(basePrice, discountPercent);
 
   return (
     <Pressable style={styles.card} onPress={onPress}>
@@ -39,6 +39,7 @@ export function GroupBuyCard({ groupBuy, onPress }: Props) {
         <View style={styles.titleRow}>
           <Text style={styles.title} numberOfLines={1}>
             {isBumped ? '🔥 ' : ''}
+            {groupBuy.pricingMode === 'fixed' ? '🧪 ' : ''}
             {groupBuy.title}
           </Text>
           <View style={[styles.ddayBadge, { backgroundColor: badgeColor.bg }]}>
@@ -50,13 +51,20 @@ export function GroupBuyCard({ groupBuy, onPress }: Props) {
 
         <Text style={styles.restaurant} numberOfLines={1}>
           {groupBuy.restaurant.name}
+          {status !== 'open' ? ` · ${formatDate(groupBuy.deadline)}` : ''}
         </Text>
 
-        <View style={styles.priceRow}>
-          {discountPercent > 0 && <Text style={styles.discount}>{discountPercent}%</Text>}
-          <Text style={styles.groupPrice}>{formatPrice(price)}</Text>
-          {discountPercent > 0 && <Text style={styles.marketPrice}>{formatPrice(basePrice)}</Text>}
-        </View>
+        {groupBuy.pricingMode === 'fixed' ? (
+          <Text style={styles.cartNote}>
+            메뉴를 담아서 참여해요{discountPercent > 0 ? ` · 지금 ${discountPercent}% 할인` : ''}
+          </Text>
+        ) : (
+          <View style={styles.priceRow}>
+            {discountPercent > 0 && <Text style={styles.discount}>{discountPercent}%</Text>}
+            <Text style={styles.groupPrice}>{formatPrice(price)}</Text>
+            {discountPercent > 0 && <Text style={styles.marketPrice}>{formatPrice(basePrice)}</Text>}
+          </View>
+        )}
 
         <View style={styles.progressTrack}>
           <View
@@ -90,6 +98,7 @@ const styles = StyleSheet.create({
   discount: { fontSize: fontSize.lg, fontWeight: fontWeight.heavy, color: colors.danger },
   groupPrice: { fontSize: fontSize.xxl, fontWeight: fontWeight.heavy, color: colors.primary },
   marketPrice: { fontSize: fontSize.baseLg, color: colors.textDisabled, textDecorationLine: 'line-through' },
+  cartNote: { fontSize: fontSize.md, color: colors.textSecondary, fontWeight: fontWeight.medium, marginTop: 4 },
   progressTrack: { height: 6, borderRadius: radius.pill, backgroundColor: colors.divider, marginTop: 8, overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: radius.pill },
   footerRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },

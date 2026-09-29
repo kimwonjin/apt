@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { GroupBuy } from '../types/domain';
-import { attachCreatorBadges, GroupBuyRow } from './groupBuyMapper';
+import { attachCreatorBadges, GROUPBUY_SELECT, GroupBuyRow } from './groupBuyMapper';
 
 export function useGroupBuy(groupBuyId: string) {
   const [groupBuy, setGroupBuy] = useState<GroupBuy | null>(null);
@@ -14,7 +14,7 @@ export function useGroupBuy(groupBuyId: string) {
 
     const { data, error: queryError } = await supabase
       .from('groupbuys')
-      .select('*, restaurants(id,name,category,rating)')
+      .select(GROUPBUY_SELECT)
       .eq('id', groupBuyId)
       .maybeSingle<GroupBuyRow>();
 

@@ -5,10 +5,14 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useAppState } from '../../state/AppStateContext';
 import { supabase } from '../../lib/supabase';
 import { AppHeader } from '../../components/AppHeader';
+import { TIME_SLOT_LABEL, TimeSlot } from '../../lib/discount';
 import { colors, fontSize, fontWeight, radius, screenPadding, spacing } from '../../theme';
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
-const SLOT_LABEL: Record<string, string> = { offpeak: '오프피크(9~10시)', peak: '피크(11~12시)' };
+function slotLabel(slot: TimeSlot) {
+  const { name, hint } = TIME_SLOT_LABEL[slot];
+  return `${name} (${hint})`;
+}
 
 interface GroupRow {
   id: string;
@@ -73,12 +77,22 @@ export function SubscriptionListScreen() {
     }
     if (subscribedIds.has(groupId)) {
       await supabase.from('subscriptions').delete().eq('user_id', user.id).eq('group_id', groupId);
-    } else {
-      const { data: pm } = await supabase.from('payment_methods').select('id').eq('user_id', user.id).limit(1).maybeSingle();
-      await supabase
-        .from('subscriptions')
-        .upsert({ user_id: user.id, group_id: groupId, payment_method_id: pm?.id ?? null, active: true }, { onConflict: 'user_id,group_id' });
+      setBusy(null);
+      refresh();
+      return;
     }
+    // 카드는 지금은 구독 신청을 막지 않음(있으면 붙이고, 없으면 null — 실제 결제
+    // 승인 단계에서 다시 확인해서 처리).
+    const { data: pm } = await supabase
+      .from('payment_methods')
+      .select('id')
+      .eq('user_id', user.id)
+      .not('billing_key', 'is', null)
+      .limit(1)
+      .maybeSingle();
+    await supabase
+      .from('subscriptions')
+      .upsert({ user_id: user.id, group_id: groupId, payment_method_id: pm?.id ?? null, active: true }, { onConflict: 'user_id,group_id' });
     setBusy(null);
     refresh();
   };
@@ -111,7 +125,7 @@ export function SubscriptionListScreen() {
                     매주 {WEEKDAYS[item.weekday]}요일 · {name(item.restaurants)}
                   </Text>
                   <Text style={styles.sub}>
-                    {name(item.menus)} · {SLOT_LABEL[item.time_slot]} · 최소 {item.min_headcount}명
+                    {name(item.menus)} · {slotLabel(item.time_slot as TimeSlot)} · 최소 {item.min_headcount}명
                   </Text>
                   {item.pickup_place && <Text style={styles.sub}>픽업: {item.pickup_place}</Text>}
                 </View>

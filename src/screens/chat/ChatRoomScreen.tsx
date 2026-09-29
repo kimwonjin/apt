@@ -10,8 +10,8 @@ import { colors, fontSize, fontWeight, minTouchSize, radius, screenPadding, spac
 type Props = NativeStackScreenProps<ChatStackParamList, 'ChatRoom'>;
 
 interface Meta {
-  peerName: string;
-  groupBuyTitle?: string;
+  title: string;
+  participantCount: number;
 }
 
 export function ChatRoomScreen({ route, navigation }: Props) {
@@ -22,26 +22,16 @@ export function ChatRoomScreen({ route, navigation }: Props) {
 
   useEffect(() => {
     (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data: peer } = await supabase
-        .from('chat_participants')
-        .select('user_id')
-        .eq('room_id', roomId)
-        .neq('user_id', user.id)
-        .maybeSingle();
       const { data: room } = await supabase.from('chat_rooms').select('groupbuy_id').eq('id', roomId).maybeSingle();
-      const [{ data: names }, gb] = await Promise.all([
-        peer ? supabase.rpc('display_names', { ids: [peer.user_id] }) : Promise.resolve({ data: null }),
+      const [{ count }, gb] = await Promise.all([
+        supabase.from('chat_participants').select('user_id', { count: 'exact', head: true }).eq('room_id', roomId),
         room?.groupbuy_id
           ? supabase.from('groupbuys').select('title').eq('id', room.groupbuy_id).maybeSingle()
           : Promise.resolve({ data: null }),
       ]);
       setMeta({
-        peerName: (names as { name: string }[] | null)?.[0]?.name ?? '상대방',
-        groupBuyTitle: (gb.data as any)?.title,
+        title: (gb.data as any)?.title ?? '채팅방',
+        participantCount: count ?? 1,
       });
     })();
   }, [roomId]);
@@ -59,13 +49,15 @@ export function ChatRoomScreen({ route, navigation }: Props) {
         <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
           <Text style={styles.back}>‹</Text>
         </Pressable>
-        <Text style={styles.headerTitle}>{meta?.peerName ?? '채팅방'}</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          {meta?.title ?? '채팅방'}
+        </Text>
         <View style={{ width: 24 }} />
       </View>
 
-      {meta?.groupBuyTitle && (
+      {meta && (
         <View style={styles.pinnedBanner}>
-          <Text style={styles.pinnedText}>📌 {meta.groupBuyTitle}</Text>
+          <Text style={styles.pinnedText}>👥 참여자 {meta.participantCount}명이 함께 보는 채팅방이에요</Text>
         </View>
       )}
 
@@ -112,7 +104,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: screenPadding, paddingVertical: spacing.sm },
   back: { fontSize: 28, color: colors.textPrimary },
-  headerTitle: { fontSize: fontSize.xl, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: fontSize.xl, fontWeight: fontWeight.semibold, color: colors.textPrimary },
   pinnedBanner: { backgroundColor: colors.primaryLight, paddingHorizontal: screenPadding, paddingVertical: spacing.xs },
   pinnedText: { fontSize: fontSize.base, color: colors.primaryDark },
   messages: { padding: screenPadding, gap: spacing.sm },

@@ -50,16 +50,13 @@ export function ChatListScreen({ navigation }: Props) {
               <View style={styles.avatar} />
               <View style={{ flex: 1 }}>
                 <View style={styles.rowTop}>
-                  <Text style={styles.peerName}>{item.peerName}</Text>
+                  <Text style={styles.peerName} numberOfLines={1}>
+                    {item.title}
+                  </Text>
                   <View style={styles.rolePill}>
-                    <Text style={styles.rolePillText}>{item.peerRoleLabel}</Text>
+                    <Text style={styles.rolePillText}>{item.participantCount}명</Text>
                   </View>
                 </View>
-                {item.groupBuyTitle && (
-                  <Text style={styles.groupBuyTitle} numberOfLines={1}>
-                    {item.groupBuyTitle}
-                  </Text>
-                )}
                 <Text style={styles.lastMessage} numberOfLines={1}>
                   {item.lastMessage}
                 </Text>
@@ -95,10 +92,9 @@ const styles = StyleSheet.create({
   },
   avatar: { width: 48, height: 48, borderRadius: radius.pill, backgroundColor: colors.fillSubtle },
   rowTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  peerName: { fontSize: fontSize.lg, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  peerName: { flexShrink: 1, fontSize: fontSize.lg, fontWeight: fontWeight.semibold, color: colors.textPrimary },
   rolePill: { backgroundColor: colors.primaryLight, borderRadius: radius.pill, paddingHorizontal: 8, paddingVertical: 2 },
   rolePillText: { color: colors.primary, fontSize: fontSize.xs, fontWeight: fontWeight.semibold },
-  groupBuyTitle: { fontSize: fontSize.base, color: colors.textTertiary, marginTop: 1 },
   lastMessage: { fontSize: fontSize.md, color: colors.textSecondary, marginTop: 2 },
   rightCol: { alignItems: 'flex-end', gap: 4 },
   time: { fontSize: fontSize.base, color: colors.textTertiary },

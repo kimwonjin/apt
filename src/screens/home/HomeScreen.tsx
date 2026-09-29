@@ -18,7 +18,7 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'HomeList'>;
 export function HomeScreen({ navigation }: Props) {
   const { buildingName } = useAppState();
   const { groupBuys, loading, error, refresh } = useGroupBuys();
-  const [filter, setFilter] = useState<Filter>('전체');
+  const [filter, setFilter] = useState<Filter>('진행중');
   const [query, setQuery] = useState('');
 
   useFocusEffect(
@@ -104,7 +104,7 @@ export function HomeScreen({ navigation }: Props) {
         />
       )}
 
-      <Pressable style={styles.fab} onPress={() => navigation.navigate('GroupBuyCreate')} hitSlop={8}>
+      <Pressable style={styles.fab} onPress={() => navigation.navigate('GroupBuyCreateOpen')} hitSlop={8}>
         <Text style={styles.fabText}>+ 공구 만들기</Text>
       </Pressable>
     </SafeAreaView>

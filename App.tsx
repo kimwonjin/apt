@@ -3,6 +3,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppStateProvider } from './src/state/AppStateContext';
 import { RootNavigator } from './src/navigation/RootNavigator';
+import { AlertHost } from './src/components/AlertHost';
 
 export default function App() {
   return (
@@ -11,6 +12,7 @@ export default function App() {
         <AppStateProvider>
           <RootNavigator />
           <StatusBar style="auto" />
+          <AlertHost />
         </AppStateProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

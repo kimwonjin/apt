@@ -5,8 +5,8 @@ import { discountPercent, nextTier, chargeAmount } from './discount';
 
 // 기획서 7장 표
 // | 참여 규모        | 5~9명 | 10~19명 | 20명+ |
-// | 피크(11~12시)   | 5%    | 8%      | 12%   |
-// | 오프피크(9~10시) | 10%   | 15%     | 20%   |
+// | 피크(12시 이전)   | 5%    | 8%      | 12%   |
+// | 오프피크(10시 이전) | 10%   | 15%     | 20%   |
 assert.equal(discountPercent(3, 'peak'), 0, '5명 미만 = 0%');
 assert.equal(discountPercent(4, 'offpeak'), 0);
 assert.equal(discountPercent(5, 'peak'), 5);

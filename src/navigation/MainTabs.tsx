@@ -14,6 +14,7 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 const TAB_ICON: Record<keyof MainTabParamList, string> = {
   홈: '🏠',
   만들기: '➕',
+  '만들기2': '🧪',
   채팅: '💬',
   구독: '🗓️',
   내정보: '👤',
@@ -23,6 +24,7 @@ const TAB_ICON: Record<keyof MainTabParamList, string> = {
 const SUB_SCREENS = new Set([
   'GroupBuyDetail',
   'GroupBuyCreate',
+  'GroupBuyCreateOpen',
   'ChatRoom',
   'SubscriptionDetail',
   'MyParticipations',
@@ -54,10 +56,24 @@ export function MainTabs() {
       <Tab.Screen
         name="만들기"
         component={HomeStack}
+        // 홈 화면의 "+ 공구 만들기" 버튼과 기능이 겹쳐서 숨김(제거는 아님).
+        // tabBarItemStyle까지 display:none을 줘야 남은 탭들이 빈 자리 없이 고르게 재배치됨.
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' } }}
         listeners={({ navigation }) => ({
           tabPress: (e) => {
             e.preventDefault();
             (navigation as any).navigate('홈', { screen: 'GroupBuyCreate' });
+          },
+        })}
+      />
+      <Tab.Screen
+        name="만들기2"
+        component={HomeStack}
+        options={{ tabBarButton: () => null, tabBarItemStyle: { display: 'none' } }}
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            e.preventDefault();
+            (navigation as any).navigate('홈', { screen: 'GroupBuyCreateOpen' });
           },
         })}
       />
